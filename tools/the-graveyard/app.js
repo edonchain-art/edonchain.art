@@ -13,6 +13,7 @@ import {
 } from "https://esm.sh/viem@2.21.54";
 import { StandardMerkleTree } from "https://esm.sh/@openzeppelin/merkle-tree@1.0.8";
 import { CONFIG } from "./config.js";
+import { createWallet, walletErrorText } from "../../assets/wallet.js";
 
 const STATUS = ["None", "Open", "Committed", "Drawing", "Drawn", "Completed", "Cancelled"];
 const S = Object.fromEntries(STATUS.map((s, i) => [s, i]));
@@ -66,6 +67,8 @@ function say(el, msg, cls = "") {
   el.innerHTML = msg;
 }
 function errText(e) {
+  const code = e?.code ?? e?.cause?.code;
+  if (code === 4001 || code === -32002) return esc(walletErrorText(e));
   return esc(e?.shortMessage || e?.details || e?.message || String(e));
 }
 
@@ -291,25 +294,26 @@ async function refresh() {
 
 // ---------------------------------------------------------------- wallet
 
-async function connect() {
-  if (!window.ethereum) {
-    alert("No wallet found. Open this page in a browser with MetaMask or another wallet installed.");
-    return;
-  }
-  [account] = await window.ethereum.request({ method: "eth_requestAccounts" });
-  account = getAddress(account);
-  const id = await window.ethereum.request({ method: "eth_chainId" });
-  if (parseInt(id, 16) !== CONFIG.chainId) {
-    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + CONFIG.chainId.toString(16) }] });
-  }
-  wallet = createWalletClient({ account, chain, transport: custom(window.ethereum) });
-  $("connect").textContent = short(account);
-  await refresh();
-}
+// Wallet picker shared with the other edonchain.art tools (EIP-6963 + mobile wallet links).
+const walletConn = createWallet({
+  chain: { id: CONFIG.chainId, name: CONFIG.chainName, rpc: CONFIG.rpc, explorer: CONFIG.explorer },
+  onChange: (address, { wrongChain } = {}) => {
+    account = address ? getAddress(address) : null;
+    wallet = address ? createWalletClient({ account, chain, transport: custom(walletConn.provider) }) : null;
+    const btn = $("connect");
+    btn.textContent = account ? `${short(account)}${wrongChain ? " · wrong network" : ""}` : "Connect Wallet";
+    btn.classList.toggle("connected", !!account);
+    refresh();
+  },
+});
 
 async function send(out, request) {
-  if (!wallet) await connect();
-  if (!wallet) return null;
+  if (!wallet) {
+    walletConn.open($("connect"));
+    say(out, "Connect your wallet first, then press the button again.", "warn");
+    return null;
+  }
+  await walletConn.ensureChain();
   say(out, "Simulating…", "warn");
   const { result, request: req } = await pub.simulateContract({ account, ...request });
   say(out, "Confirm in your wallet…", "warn");
@@ -484,10 +488,6 @@ if (CONFIG.testnet) {
   document.querySelector(".content").prepend(bar);
 }
 
-$("connect").onclick = () => connect().catch((e) => alert(e.message));
-if (window.ethereum) {
-  window.ethereum.on?.("accountsChanged", () => location.reload());
-  window.ethereum.on?.("chainChanged", () => location.reload());
-}
+$("connect").onclick = (e) => walletConn.open(e.currentTarget);
 refresh();
 setInterval(refresh, 60_000);

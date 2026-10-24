@@ -265,6 +265,38 @@ h1.pixel span{ color:var(--accent); }
 }
 .entry .links a:hover{ border-color:var(--accent); color:var(--accent); text-decoration:none; }
 
+/* ---------- Wallet picker (assets/wallet.js) ---------- */
+.wallet-picker-menu{
+  position:absolute;
+  top:calc(100% + 6px);
+  left:0;
+  right:0;
+  background:var(--panel);
+  border:1px solid var(--border);
+  padding:6px;
+  z-index:60;
+  box-shadow:4px 4px 0 var(--px-shadow);
+}
+.wallet-picker-menu.up{ top:auto; bottom:calc(100% + 6px); }
+.wallet-picker-item{
+  display:flex; align-items:center; gap:10px;
+  width:100%;
+  min-height:44px;
+  padding:10px;
+  background:none;
+  border:none;
+  color:var(--text);
+  font-family:var(--font-body);
+  font-size:13px;
+  cursor:pointer;
+  text-align:left;
+  text-decoration:none;
+}
+.wallet-picker-item:hover{ background:var(--panel2); text-decoration:none; }
+.wallet-picker-item img{ width:22px; height:22px; flex-shrink:0; }
+.wallet-picker-note{ padding:10px 10px 6px; font-family:var(--font-ui); font-size:11px; line-height:1.6; color:var(--muted); }
+.connect-btn.connected{ background:var(--panel2); color:var(--text); border:1px solid var(--accent); }
+
 /* ---------- Footer ---------- */
 .site-footer{
   margin:0 48px;
@@ -290,6 +322,8 @@ h1.pixel span{ color:var(--accent); }
   .theme-toggle{ width:auto; margin:0; }
   .theme-toggle span{ display:none; }
   .connect-btn{ width:auto; }
+  .sitenav{ overflow:visible; }
+  .wallet-picker-menu{ left:auto; right:0; width:min(300px, calc(100vw - 32px)); }
   .content{ margin-left:0; }
   .hero, .section{ padding-left:16px; padding-right:16px; }
   .hero{ padding-top:48px; }
