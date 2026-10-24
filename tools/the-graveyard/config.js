@@ -5,7 +5,7 @@ export const CONFIG = {
   chainName: "Base",
   rpc: "https://mainnet.base.org",
   explorer: "https://basescan.org",
-  RAFFLE: "", // GraveyardRaffle address on Base (set after deployment)
+  RAFFLE: "0x5DBfB702cD34bCaf41f442A8123477556FFc1bFc", // GraveyardRaffle on Base, deployed 2026-10-24
   ZOMBIES: "0xa2d33352e3e2b4fe1b8af7387c375828197bcd9b",
   opensea: "https://opensea.io/item/base/0xa2d33352e3e2b4fe1b8af7387c375828197bcd9b/",
 };
