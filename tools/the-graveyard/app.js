@@ -489,5 +489,11 @@ if (CONFIG.testnet) {
 }
 
 $("connect").onclick = (e) => walletConn.open(e.currentTarget);
+// Admin default: close 24 hours from now (local time, minutes precision).
+{
+  const t = new Date(Date.now() + 24 * 3600 * 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  if (!$("aCloses").value) $("aCloses").value = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}T${pad(t.getHours())}:${pad(t.getMinutes())}`;
+}
 refresh();
 setInterval(refresh, 60_000);
