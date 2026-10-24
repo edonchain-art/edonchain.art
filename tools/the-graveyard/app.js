@@ -264,10 +264,12 @@ async function renderLog() {
 function renderHeroStats() {
   const completed = giveaways.filter((g) => g.status === S.Completed);
   const tickets = completed.reduce((a, g) => a + Number(g.entrantCount), 0);
-  $("heroStats").innerHTML = `
-    <span class="pill"><b>${completed.length}</b> Zombies given back</span>
-    <span class="pill"><b>${tickets}</b> tickets drawn from</span>
-    <span class="pill">Randomness: <b>Chainlink VRF v2.5</b></span>`;
+  const stat = (num, lbl) => `<div class="stat"><div class="num">${num}</div><div class="lbl">${lbl}</div></div>`;
+  $("heroStats").innerHTML =
+    stat(completed.length, "Zombies given back") +
+    stat(tickets, "Tickets drawn from") +
+    stat("VRF v2.5", "Chainlink") +
+    stat(CONFIG.chainName, "Network");
   $("contracts").innerHTML = `Raffle contract: ${CONFIG.RAFFLE ? addrLink(CONFIG.RAFFLE) : "not deployed yet"} · Zombies On Base: ${addrLink(CONFIG.ZOMBIES)}`;
 }
 
@@ -279,7 +281,9 @@ async function refresh() {
     }
     renderHeroStats();
     await Promise.all([renderCurrent(), renderLog()]);
-    $("admin").hidden = !(account && raffleOwner && account.toLowerCase() === raffleOwner.toLowerCase());
+    const isOwner = !!(account && raffleOwner && account.toLowerCase() === raffleOwner.toLowerCase());
+    $("admin").hidden = !isOwner;
+    $("navAdmin").hidden = !isOwner;
   } catch (e) {
     $("currentBody").innerHTML = `<div class="card"><p class="note err">Could not read from Base: ${errText(e)}</p></div>`;
   }
@@ -477,7 +481,7 @@ if (CONFIG.testnet) {
   const bar = document.createElement("div");
   bar.className = "testnet-bar";
   bar.textContent = `Test mode · ${CONFIG.chainName} · not real Zombies`;
-  document.body.prepend(bar);
+  document.querySelector(".content").prepend(bar);
 }
 
 $("connect").onclick = () => connect().catch((e) => alert(e.message));
