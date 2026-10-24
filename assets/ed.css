@@ -224,6 +224,7 @@ h1.pixel span{ color:var(--accent); }
   border:1px solid var(--border);
   padding-bottom:18px;
 }
+/* side padding for everything under the image; card text rules only set top/bottom margins */
 .entry > :not(.thumb){ margin-left:18px; margin-right:18px; }
 .entry .thumb{
   display:block;
@@ -247,9 +248,9 @@ h1.pixel span{ color:var(--accent); }
   padding:3px 8px;
 }
 .entry .year{ font-family:var(--font-ui); font-size:11px; color:var(--accent); font-weight:700; margin-bottom:6px; }
-.entry h2{ font-family:var(--font-head); font-size:18px; font-weight:700; letter-spacing:-0.02em; margin:0 0 8px; color:var(--text); }
+.entry h2{ font-family:var(--font-head); font-size:18px; font-weight:700; letter-spacing:-0.02em; margin-top:0; margin-bottom:8px; color:var(--text); }
 .entry h2 .num{ font-family:var(--font-ui); color:var(--accent); margin-right:6px; }
-.entry p.desc{ margin:0 0 12px; color:var(--muted); font-size:13px; line-height:1.7; }
+.entry p.desc{ margin-top:0; margin-bottom:12px; color:var(--muted); font-size:13px; line-height:1.7; }
 .entry .meta{ font-family:var(--font-ui); font-size:11px; color:var(--muted); margin-bottom:14px; display:flex; gap:14px; flex-wrap:wrap; }
 .entry .meta b{ color:var(--text); font-weight:600; }
 .entry .links{ display:flex; gap:10px; flex-wrap:wrap; margin-top:auto; }
