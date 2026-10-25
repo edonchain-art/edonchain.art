@@ -287,6 +287,7 @@ async function refresh() {
     const isOwner = !!(account && raffleOwner && account.toLowerCase() === raffleOwner.toLowerCase());
     $("admin").hidden = !isOwner;
     $("navAdmin").hidden = !isOwner;
+    if (isOwner) autoLoadSnapshot();
   } catch (e) {
     $("currentBody").innerHTML = `<div class="card"><p class="note err">Could not read from Base: ${errText(e)}</p></div>`;
   }
@@ -423,22 +424,64 @@ $("aStart").onclick = async () => {
   }
 };
 
-$("aFile").onchange = async () => {
+/** Check a snapshot and make it the one the Commit button will record. */
+function usePendingSnapshot(snap, source) {
+  const info = $("aFileInfo");
+  pendingSnap = null;
+  $("aCommit").disabled = true;
+  checkSnapshot(snap);
+  pendingSnap = snap;
+  const s = snap.stats;
+  $("aCid").value = snap.giveawayId;
+  if (!$("aUri").value) $("aUri").value = `snapshots/giveaway-${snap.giveawayId}.json`;
+  const raffleOk = snap.raffle.toLowerCase() === CONFIG.RAFFLE.toLowerCase();
+  const lines = [
+    source,
+    `Giveaway #${snap.giveawayId} · block ${snap.snapshot.block} · ${s.tickets} tickets · ${s.eligibleWallets} wallets · ${s.excludedWallets} excluded`,
+    `Root ${snap.merkleRoot}`,
+  ];
+  if (!raffleOk) lines.push("⚠ Snapshot was made for a different raffle address");
+  say(info, lines.map(esc).join("<br>"), raffleOk ? "ok" : "err");
+  $("aCommit").disabled = !raffleOk;
+}
+
+/** Load the snapshot that is already published on this site (no file picking needed). */
+async function loadPublishedSnapshot() {
   const info = $("aFileInfo");
   try {
+    const uri = $("aUri").value.trim() || `snapshots/giveaway-${$("aCid").value}.json`;
+    $("aUri").value = uri;
+    const url = snapshotUrl(uri);
+    if (!url) throw new Error("Use an https URL or a path on this site.");
+    const r = await fetch(url, { cache: "no-store" });
+    if (!r.ok) throw new Error(`No published snapshot at ${uri} yet.`);
+    usePendingSnapshot(await r.json(), `✓ Loaded the published snapshot (${uri})`);
+  } catch (e) {
     pendingSnap = null;
     $("aCommit").disabled = true;
-    const snap = JSON.parse(await $("aFile").files[0].text());
-    checkSnapshot(snap);
-    pendingSnap = snap;
-    const s = pendingSnap.stats;
-    $("aCid").value = pendingSnap.giveawayId;
-    if (!$("aUri").value) $("aUri").value = `snapshots/giveaway-${pendingSnap.giveawayId}.json`;
-    const raffleOk = pendingSnap.raffle.toLowerCase() === CONFIG.RAFFLE.toLowerCase();
-    say(info, `Block ${pendingSnap.snapshot.block} · ${s.tickets} tickets · ${s.eligibleWallets} wallets · ${s.excludedWallets} excluded\nRoot ${pendingSnap.merkleRoot}${raffleOk ? "" : "\n⚠ Snapshot was made for a different raffle address"}`, raffleOk ? "" : "err");
-    $("aCommit").disabled = !raffleOk;
+    say(info, errText(e), "warn");
+  }
+}
+
+$("aLoad").onclick = loadPublishedSnapshot;
+
+let autoLoaded = false;
+/** When the owner opens Admin after a giveaway closes, pre-load its published snapshot. */
+function autoLoadSnapshot() {
+  if (autoLoaded || pendingSnap) return;
+  const g = [...giveaways].reverse().find((x) => (x.status === S.Open || x.status === S.Committed) && Date.now() / 1000 >= Number(x.closesAt));
+  if (!g) return;
+  autoLoaded = true;
+  $("aCid").value = g.id;
+  $("aUri").value = `snapshots/giveaway-${g.id}.json`;
+  loadPublishedSnapshot();
+}
+
+$("aFile").onchange = async () => {
+  try {
+    usePendingSnapshot(JSON.parse(await $("aFile").files[0].text()), "Loaded from your computer");
   } catch (e) {
-    say(info, errText(e), "err");
+    say($("aFileInfo"), errText(e), "err");
   }
 };
 

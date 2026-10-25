@@ -96,10 +96,11 @@
       </div>
       <div class="card">
         <h3>2 · Commit the snapshot</h3>
-        <p class="muted small">After it closes: run the snapshot script, publish the file on the site, then load it here. Committing is blocked unless the published file is live and matches exactly.</p>
+        <p class="muted small">After it closes, the snapshot is published on this site and loads here automatically. Committing is blocked unless the published file is live and matches exactly.</p>
         <label>Giveaway ID <input id="aCid" value="0"></label>
-        <label>Snapshot file <input id="aFile" type="file" accept=".json"></label>
-        <label>Published path / URL <input id="aUri" placeholder="snapshots/giveaway-0.json"></label>
+        <label>Published path / URL <input id="aUri" value="snapshots/giveaway-0.json"></label>
+        <button class="btn ghost" id="aLoad" type="button">Load published snapshot</button>
+        <label>Or pick a local file <input id="aFile" type="file" accept=".json"></label>
         <div class="note" id="aFileInfo"></div>
         <button class="btn" id="aCommit" disabled>Commit snapshot</button>
         <div class="note" id="aCommitOut"></div>
