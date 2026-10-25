@@ -4,7 +4,7 @@ import {
   custom,
   http,
   parseAbi,
-  encodeAbiParameters,
+  parseEther,
   encodeFunctionData,
   decodeFunctionResult,
   formatEther,
@@ -15,25 +15,33 @@ import { StandardMerkleTree } from "https://esm.sh/@openzeppelin/merkle-tree@1.0
 import { CONFIG } from "./config.js";
 import { createWallet, walletErrorText } from "../../assets/wallet.js";
 
-const STATUS = ["None", "Open", "Committed", "Drawing", "Drawn", "Completed", "Cancelled"];
-const S = Object.fromEntries(STATUS.map((s, i) => [s, i]));
+// v1 (giveaway #0, snapshot + Merkle proof) and v2 (onchain draw, prepaid fee) raffles.
+const V1_STATUS = ["none", "open", "committed", "drawing", "drawn", "completed", "cancelled"];
+const V2_STATUS = ["none", "open", "drawing", "drawn", "completed", "cancelled"];
 
-const raffleAbi = parseAbi([
+const v1Abi = parseAbi([
   "struct Giveaway { uint256 prizeTokenId; uint64 openedAt; uint64 closesAt; uint64 requestedAt; uint64 completedAt; uint8 status; uint32 entrantCount; bytes32 entrantsRoot; string entrantsURI; uint256 requestId; uint256 randomWord; address winner; uint256 winningTokenId; uint32 winningIndex; }",
+  "function giveawayCount() view returns (uint256)",
+  "function getGiveaway(uint256 id) view returns (Giveaway)",
+]);
+const v2Abi = parseAbi([
+  "struct Giveaway { uint256 prizeTokenId; uint64 openedAt; uint64 closesAt; uint64 requestedAt; uint64 completedAt; uint8 status; uint32 ticketCount; uint32 attempts; uint256 feeDeposit; uint256 feePaid; uint256 requestId; uint256 randomWord; address winner; uint256 winningTokenId; }",
   "function owner() view returns (address)",
   "function giveawayCount() view returns (uint256)",
   "function getGiveaway(uint256 id) view returns (Giveaway)",
-  "function drawnIndex(uint256 id) view returns (uint32)",
   "function drawPrice() view returns (uint256)",
-  "function commitEntrants(uint256 id, bytes32 root, uint32 entrantCount, string entrantsURI)",
-  "function requestDraw(uint256 id) payable returns (uint256)",
-  "function settle(uint256 id, uint32 index, address holder, uint256 zombieTokenId, bytes32[] proof)",
+  "function startGiveaway(uint256 prizeTokenId, uint64 closesAt) payable returns (uint256)",
+  "function draw(uint256 id) payable returns (uint256)",
+  "function continuePayout(uint256 id)",
   "function cancel(uint256 id)",
 ]);
 const zombiesAbi = parseAbi([
   "function tokenURI(uint256) view returns (string)",
   "function balanceOf(address) view returns (uint256)",
-  "function safeTransferFrom(address from, address to, uint256 tokenId, bytes data)",
+  "function ownerOf(uint256) view returns (address)",
+  "function totalSupply() view returns (uint256)",
+  "function isApprovedForAll(address owner, address operator) view returns (bool)",
+  "function setApprovalForAll(address operator, bool approved)",
 ]);
 
 const chain = {
@@ -55,12 +63,9 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 let account = null;
 let wallet = null;
 let raffleOwner = null;
-let giveaways = [];
+let giveaways = []; // normalized, oldest first; .no is the public giveaway number
 const metaCache = new Map();
 const snapCache = new Map();
-
-const raffleRead = (functionName, args = []) =>
-  pub.readContract({ address: CONFIG.RAFFLE, abi: raffleAbi, functionName, args });
 
 function say(el, msg, cls = "") {
   el.className = "note " + cls;
@@ -68,7 +73,7 @@ function say(el, msg, cls = "") {
 }
 function errText(e) {
   const code = e?.code ?? e?.cause?.code;
-  if (code === 4001 || code === -32002) return esc(walletErrorText(e));
+  if (code === 4001 || code === -32002 || /rejected/i.test(e?.shortMessage || "")) return esc(walletErrorText({ code: code ?? 4001, ...e }));
   return esc(e?.shortMessage || e?.details || e?.message || String(e));
 }
 
@@ -103,18 +108,6 @@ function snapshotUrl(uri) {
   return u.protocol === "https:" || u.origin === location.origin ? u : null;
 }
 
-/** Rebuild the Merkle tree from a snapshot file and check it is internally consistent. */
-function checkSnapshot(snap) {
-  const tree = StandardMerkleTree.load(snap.tree);
-  if (tree.root !== snap.merkleRoot) throw new Error("Snapshot tree does not match its Merkle root.");
-  const values = snap.tree.values;
-  if (values.length !== Number(snap.entrantCount)) throw new Error(`Snapshot has ${values.length} tickets but says ${snap.entrantCount}.`);
-  values.forEach((v, i) => {
-    if (Number(v.value[0]) !== i) throw new Error(`Ticket ${i} is out of order.`);
-  });
-  return tree;
-}
-
 async function loadSnapshot(uri) {
   if (!uri) return null;
   if (snapCache.has(uri)) return snapCache.get(uri);
@@ -128,39 +121,67 @@ async function loadSnapshot(uri) {
   return p;
 }
 
+async function readAll(address, abi, statuses, v) {
+  if (!address) return [];
+  const n = Number(await pub.readContract({ address, abi, functionName: "giveawayCount" }));
+  const list = await Promise.all(
+    Array.from({ length: n }, (_, i) => pub.readContract({ address, abi, functionName: "getGiveaway", args: [BigInt(i)] })),
+  );
+  return list.map((g, id) => ({
+    v, id, raffle: address,
+    status: statuses[g.status],
+    prizeTokenId: g.prizeTokenId,
+    openedAt: g.openedAt, closesAt: g.closesAt, requestedAt: g.requestedAt, completedAt: g.completedAt,
+    tickets: Number(v === 1 ? g.entrantCount : g.ticketCount),
+    winner: g.winner, winningTokenId: g.winningTokenId,
+    requestId: g.requestId, randomWord: g.randomWord,
+    entrantsURI: g.entrantsURI, entrantsRoot: g.entrantsRoot, winningIndex: g.winningIndex,
+    feeDeposit: g.feeDeposit, feePaid: g.feePaid, attempts: g.attempts,
+  }));
+}
+
 async function loadGiveaways() {
-  const n = Number(await raffleRead("giveawayCount"));
-  const list = await Promise.all(Array.from({ length: n }, (_, i) => raffleRead("getGiveaway", [BigInt(i)])));
-  giveaways = list.map((g, id) => ({ ...g, id }));
-  return giveaways;
+  const [a, b] = await Promise.all([
+    readAll(CONFIG.RAFFLE_V1, v1Abi, V1_STATUS, 1),
+    readAll(CONFIG.RAFFLE, v2Abi, V2_STATUS, 2),
+  ]);
+  giveaways = [...a, ...b].map((g, i) => ({ ...g, no: i }));
 }
 
 // ---------------------------------------------------------------- render
 
+const isClosed = (g) => Date.now() / 1000 >= Number(g.closesAt);
+
 function statusChip(g) {
-  const now = Date.now() / 1000;
-  if (g.status === S.Open && now < Number(g.closesAt)) return `<span class="chip live">Open</span>`;
-  if (g.status === S.Open) return `<span class="chip warn">Closed · snapshot pending</span>`;
-  if (g.status === S.Committed) return `<span class="chip warn">Snapshot committed</span>`;
-  if (g.status === S.Drawing) return `<span class="chip warn">Waiting for Chainlink VRF</span>`;
-  if (g.status === S.Drawn) return `<span class="chip warn">Random number in · ready to settle</span>`;
-  if (g.status === S.Completed) return `<span class="chip done">Completed</span>`;
+  if (g.status === "open" && !isClosed(g)) return `<span class="chip live">Open</span>`;
+  if (g.status === "open") return `<span class="chip warn">Closed · ready to draw</span>`;
+  if (g.status === "committed") return `<span class="chip warn">Snapshot committed</span>`;
+  if (g.status === "drawing") return `<span class="chip warn">Waiting for Chainlink VRF</span>`;
+  if (g.status === "drawn") return `<span class="chip warn">${g.v === 2 ? "Winner picked · payout pending" : "Random number in · ready to settle"}</span>`;
+  if (g.status === "completed") return `<span class="chip done">Completed</span>`;
   return `<span class="chip">Cancelled</span>`;
 }
 
 function timeline(g) {
-  const st = g.status;
-  const step = (label, done, now, when = "") =>
-    `<li class="${done ? "done" : now ? "now" : ""}">${label}${when ? `<span class="when">${when}</span>` : ""}</li>`;
-  const closed = st !== S.Open || Date.now() / 1000 >= Number(g.closesAt);
+  const done = (s) => ["drawing", "drawn", "completed"].indexOf(g.status) >= ["drawing", "drawn", "completed"].indexOf(s);
+  const step = (label, ok, now, when = "") =>
+    `<li class="${ok ? "done" : now ? "now" : ""}">${label}${when ? `<span class="when">${when}</span>` : ""}</li>`;
+  const closed = g.status !== "open" || isClosed(g);
+  const drawn = g.status !== "open" && g.status !== "committed" && g.status !== "cancelled";
+  if (g.v === 1) {
+    return `<ol class="timeline">
+      ${step("Prize locked in the raffle contract", true, false, fmtDate(g.openedAt))}
+      ${step("Entries close · snapshot taken", closed, !closed, fmtDate(g.closesAt))}
+      ${step("Snapshot committed onchain", g.status !== "open" && g.status !== "cancelled", closed && g.status === "open", g.tickets ? `${g.tickets} tickets` : "")}
+      ${step("Chainlink VRF random number", ["drawn", "completed"].includes(g.status), ["committed", "drawing"].includes(g.status), drawn ? `Requested ${fmtDate(g.requestedAt)}` : "")}
+      ${step("Prize sent to the winner", g.status === "completed", g.status === "drawn", g.status === "completed" ? fmtDate(g.completedAt) : "")}
+    </ol>`;
+  }
   return `<ol class="timeline">
-    ${step("Prize locked in the raffle contract", true, false, fmtDate(g.openedAt))}
-    ${step("Entries close · OpenSea listings checked", closed, !closed, fmtDate(g.closesAt))}
-    ${step("Snapshot committed onchain", st >= S.Committed && st !== S.Cancelled, closed && st === S.Open,
-      st >= S.Committed && st !== S.Cancelled ? `${g.entrantCount} tickets` : "")}
-    ${step("Chainlink VRF random number", st >= S.Drawn && st !== S.Cancelled, st === S.Committed || st === S.Drawing,
-      st >= S.Drawing && st !== S.Cancelled ? `Requested ${fmtDate(g.requestedAt)}` : "")}
-    ${step("Prize sent to the winner", st === S.Completed, st === S.Drawn, st === S.Completed ? fmtDate(g.completedAt) : "")}
+    ${step("Prize and Chainlink fee locked in the contract", true, false, fmtDate(g.openedAt))}
+    ${step("Entries close", closed, !closed, fmtDate(g.closesAt))}
+    ${step("Draw requested from Chainlink VRF", drawn && done("drawing"), closed && g.status === "open", drawn ? `${fmtDate(g.requestedAt)} · ${g.tickets} tickets` : "")}
+    ${step("Random Zombie picked · prize sent to its holder", g.status === "completed", g.status === "drawing" || g.status === "drawn", g.status === "completed" ? fmtDate(g.completedAt) : "")}
   </ol>`;
 }
 
@@ -174,6 +195,7 @@ function startCountdown(closesAt) {
     if (left <= 0) {
       el.textContent = "Entries closed";
       clearInterval(countdownTimer);
+      refresh();
       return;
     }
     const d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600), m = Math.floor((left % 3600) / 60), s = left % 60;
@@ -183,28 +205,45 @@ function startCountdown(closesAt) {
   countdownTimer = setInterval(tick, 1000);
 }
 
+function currentGiveaway() {
+  return [...giveaways].reverse().find((g) => g.status !== "cancelled") || giveaways[giveaways.length - 1];
+}
+
 async function renderCurrent() {
   const body = $("currentBody");
-  if (!CONFIG.RAFFLE) {
+  if (!CONFIG.RAFFLE && !CONFIG.RAFFLE_V1) {
     body.innerHTML = `<div class="card"><p class="pixel small">The Graveyard is waking up…</p><p class="muted">The raffle contract hasn't been deployed yet. Check back soon.</p></div>`;
     return;
   }
-  const live = [...giveaways].reverse().find((g) => g.status !== S.Cancelled) || giveaways[giveaways.length - 1];
+  const live = currentGiveaway();
   if (!live) {
-    body.innerHTML = `<div class="card"><p class="pixel small">No giveaway yet</p><p class="muted">The first fully onchain Zombie is coming. Hold your Zombies and keep them unlisted.</p></div>`;
+    body.innerHTML = `<div class="card"><p class="pixel small">No giveaway yet</p><p class="muted">The next fully onchain Zombie is coming. Hold your Zombies.</p></div>`;
     return;
   }
   const meta = await tokenMeta(live.prizeTokenId);
-  const snap = live.entrantsURI ? await loadSnapshot(live.entrantsURI).catch(() => null) : null;
-  const rootOk = snap && snap.merkleRoot?.toLowerCase() === live.entrantsRoot.toLowerCase();
+  const snap = live.v === 1 && live.entrantsURI ? await loadSnapshot(live.entrantsURI).catch(() => null) : null;
+  const rootOk = snap && snap.merkleRoot?.toLowerCase() === String(live.entrantsRoot).toLowerCase();
 
   let winnerHtml = "";
-  if (live.status === S.Completed) {
+  if (live.status === "completed") {
     winnerHtml = `<div class="winner"><div class="pixel">Winner</div>
-      <div>${addrLink(live.winner)} won with Zombie #${live.winningTokenId} (ticket #${live.winningIndex} of ${live.entrantCount}).</div></div>`;
+      <div>${addrLink(live.winner)} won with Zombie #${live.winningTokenId}${live.v === 1 ? ` (ticket #${live.winningIndex} of ${live.tickets})` : ` (1 of ${live.tickets} Zombies)`}.</div></div>`;
   }
-  const canDraw = live.status === S.Committed;
-  const canSettle = live.status === S.Drawn;
+  const canDraw = live.v === 2 && live.status === "open" && isClosed(live);
+  const canFinish = live.v === 2 && live.status === "drawn";
+
+  const kv = [];
+  if (live.v === 1 && live.tickets) {
+    kv.push(`<dt>Tickets</dt><dd>${live.tickets}${snap ? ` from ${snap.stats.eligibleWallets} wallets` : ""}</dd>`);
+    if (snap) kv.push(`<dt>Snapshot</dt><dd>block ${snap.snapshot.block} · <a href="${esc(snapshotUrl(live.entrantsURI))}" target="_blank" rel="noopener">full list</a></dd>`);
+    kv.push(`<dt>Merkle root</dt><dd><code>${live.entrantsRoot}</code> ${snap ? (rootOk ? "✓ matches the published list" : "⚠ does not match the published list") : ""}</dd>`);
+  }
+  if (live.v === 2) {
+    kv.push(`<dt>Tickets</dt><dd>${live.tickets ? `${live.tickets} Zombies at the draw` : "Every Zombie held at the draw"} · the owner's Zombies and the prize don't count</dd>`);
+    kv.push(`<dt>Chainlink fee</dt><dd>${live.feePaid ? `${formatEther(live.feePaid)} ETH paid from the deposit` : `${formatEther(live.feeDeposit)} ETH deposited`}</dd>`);
+  }
+  if (["drawing", "drawn", "completed"].includes(live.status)) kv.push(`<dt>VRF request</dt><dd><code>${String(live.requestId).slice(0, 18)}…</code></dd>`);
+  if (["drawn", "completed"].includes(live.status)) kv.push(`<dt>Random word</dt><dd><code>${String(live.randomWord).slice(0, 24)}…</code></dd>`);
 
   body.innerHTML = `
     <div class="prize">
@@ -214,80 +253,75 @@ async function renderCurrent() {
       ${CONFIG.testnet ? "" : `<a class="small" href="${CONFIG.opensea}${live.prizeTokenId}" target="_blank" rel="noopener">View on OpenSea</a>`}
     </div>
     <div>
-      <div class="status-head"><h3>Giveaway #${live.id}</h3>${statusChip(live)}</div>
-      ${live.status === S.Open ? `<div class="countdown" id="countdown"></div>` : ""}
+      <div class="status-head"><h3>Giveaway #${live.no}</h3>${statusChip(live)}</div>
+      ${live.status === "open" && !isClosed(live) ? `<div class="countdown" id="countdown"></div>` : ""}
       ${winnerHtml}
       ${timeline(live)}
-      <dl class="kv">
-        ${live.status >= S.Committed && live.status !== S.Cancelled ? `
-          <dt>Tickets</dt><dd>${live.entrantCount}${snap ? ` from ${snap.stats.eligibleWallets} wallets` : ""}</dd>
-          ${snap ? `<dt>Excluded</dt><dd>${snap.excluded.length} wallets (${snap.excluded.filter((e) => e.reasons.includes("listed on OpenSea")).length} with OpenSea listings)</dd>` : ""}
-          <dt>Snapshot</dt><dd>${snap ? `block ${snap.snapshot.block} · <a href="${esc(snapshotUrl(live.entrantsURI))}" target="_blank" rel="noopener">full list</a>` : esc(live.entrantsURI)}</dd>
-          <dt>Merkle root</dt><dd><code>${live.entrantsRoot}</code> ${snap ? (rootOk ? "✓ matches the published list" : "⚠ does not match the published list") : ""}</dd>` : ""}
-        ${live.status >= S.Drawing && live.status !== S.Cancelled ? `<dt>VRF request</dt><dd><code>${String(live.requestId).slice(0, 18)}…</code></dd>` : ""}
-        ${live.status >= S.Drawn && live.status !== S.Cancelled ? `<dt>Random word</dt><dd><code>${String(live.randomWord).slice(0, 24)}…</code></dd>` : ""}
-      </dl>
+      <dl class="kv">${kv.join("")}</dl>
       <div class="actions">
-        ${canDraw ? `<button class="btn big" id="drawBtn">Request Chainlink VRF draw</button>` : ""}
-        ${canSettle ? `<button class="btn big" id="settleBtn">Reveal winner &amp; send prize</button>` : ""}
+        ${canDraw ? `<button class="btn big" id="drawBtn">Draw the winner</button>` : ""}
+        ${canFinish ? `<button class="btn big" id="finishBtn">Finish payout</button>` : ""}
       </div>
-      ${canDraw || canSettle ? `<p class="muted small">Anyone can press this. You pay the gas${canDraw ? " plus the Chainlink fee, a few cents on Base" : ""}.</p>` : ""}
+      ${canDraw ? `<p class="muted small">Anyone can press this. The Chainlink fee is already prepaid; you only pay gas (a cent or less). Chainlink picks a random Zombie and the contract sends the prize to its holder within seconds.</p>` : ""}
+      ${live.status === "drawing" ? `<p class="muted small">Waiting for Chainlink. This page updates by itself.</p>` : ""}
       <div class="note" id="actionOut"></div>
     </div>`;
-  if (live.status === S.Open) startCountdown(live.closesAt);
-  if (canDraw) $("drawBtn").onclick = () => requestDraw(live);
-  if (canSettle) $("settleBtn").onclick = () => settle(live);
+  if (live.status === "open" && !isClosed(live)) startCountdown(live.closesAt);
+  if (canDraw) $("drawBtn").onclick = () => drawWinner(live);
+  if (canFinish) $("finishBtn").onclick = () => finishPayout(live);
+  if (live.status === "drawing") pollUntilChanged(live);
 }
 
 async function renderLog() {
   const el = $("logBody");
-  const done = giveaways.filter((g) => g.status !== S.None).reverse();
-  if (!CONFIG.RAFFLE || done.length === 0) {
+  const done = [...giveaways].filter((g) => g.status !== "none").reverse();
+  if (done.length === 0) {
     el.innerHTML = `<p class="muted">No Zombies have risen from the Graveyard yet.</p>`;
     return;
   }
   const cards = await Promise.all(done.map(async (g) => {
     const meta = await tokenMeta(g.prizeTokenId);
-    const result = g.status === S.Completed
+    const result = g.status === "completed"
       ? `<div class="line"><span>Winner</span><b>${addrLink(g.winner)}</b></div>
          <div class="line"><span>Winning ticket</span><b>Zombie #${g.winningTokenId}</b></div>
          <div class="line"><span>Date</span><b>${new Date(Number(g.completedAt) * 1000).toLocaleDateString()}</b></div>`
-      : `<div class="line"><span>Status</span><b>${STATUS[g.status]}</b></div>`;
+      : `<div class="line"><span>Status</span><b>${g.status}</b></div>`;
     return `<div class="grave">
       ${meta.image ? `<img src="${esc(meta.image)}" alt="${esc(meta.name)}" loading="lazy">` : ""}
       <div class="body">
-        <div class="title">#${g.id} · ${esc(meta.name)}</div>
+        <div class="title">#${g.no} · ${esc(meta.name)}</div>
         ${result}
-        ${g.entrantCount ? `<div class="line"><span>Tickets</span><b>${g.entrantCount}</b></div>` : ""}
+        ${g.tickets ? `<div class="line"><span>Tickets</span><b>${g.tickets}</b></div>` : ""}
       </div></div>`;
   }));
   el.innerHTML = cards.join("");
 }
 
 function renderHeroStats() {
-  const completed = giveaways.filter((g) => g.status === S.Completed);
-  const tickets = completed.reduce((a, g) => a + Number(g.entrantCount), 0);
+  const completed = giveaways.filter((g) => g.status === "completed");
+  const tickets = completed.reduce((a, g) => a + g.tickets, 0);
   const stat = (num, lbl) => `<div class="stat"><div class="num">${num}</div><div class="lbl">${lbl}</div></div>`;
   $("heroStats").innerHTML =
     stat(completed.length, "Zombies given back") +
     stat(tickets, "Tickets drawn from") +
     stat("VRF v2.5", "Chainlink") +
     stat(CONFIG.chainName, "Network");
-  $("contracts").innerHTML = `Raffle contract: ${CONFIG.RAFFLE ? addrLink(CONFIG.RAFFLE) : "not deployed yet"} · Zombies On Base: ${addrLink(CONFIG.ZOMBIES)}`;
+  const parts = [];
+  if (CONFIG.RAFFLE) parts.push(`Raffle v2: ${addrLink(CONFIG.RAFFLE)}`);
+  if (CONFIG.RAFFLE_V1) parts.push(`Raffle v1 (giveaway #0): ${addrLink(CONFIG.RAFFLE_V1)}`);
+  parts.push(`Zombies On Base: ${addrLink(CONFIG.ZOMBIES)}`);
+  $("contracts").innerHTML = parts.join(" · ");
 }
 
 async function refresh() {
   try {
-    if (CONFIG.RAFFLE) {
-      await loadGiveaways();
-      raffleOwner = await raffleRead("owner");
-    }
+    await loadGiveaways();
+    if (CONFIG.RAFFLE) raffleOwner = await pub.readContract({ address: CONFIG.RAFFLE, abi: v2Abi, functionName: "owner" });
     renderHeroStats();
     await Promise.all([renderCurrent(), renderLog()]);
     const isOwner = !!(account && raffleOwner && account.toLowerCase() === raffleOwner.toLowerCase());
     $("admin").hidden = !isOwner;
     $("navAdmin").hidden = !isOwner;
-    if (isOwner) autoLoadSnapshot();
   } catch (e) {
     $("currentBody").innerHTML = `<div class="card"><p class="note err">Could not read from Base: ${errText(e)}</p></div>`;
   }
@@ -325,54 +359,54 @@ async function send(out, request) {
   return { hash, result };
 }
 
-// ---------------------------------------------------------------- actions
+// ---------------------------------------------------------------- actions (v2)
 
-async function requestDraw(g) {
+/** VRF fee quoted at 2x today's gas price (the real fee depends on the draw transaction's gas price). */
+async function quoteFee() {
+  const gasPrice = (await pub.getGasPrice()) * 2n;
+  const raw = await pub.call({ to: CONFIG.RAFFLE, data: encodeFunctionData({ abi: v2Abi, functionName: "drawPrice" }), gasPrice });
+  return decodeFunctionResult({ abi: v2Abi, functionName: "drawPrice", data: raw.data });
+}
+
+async function drawWinner(g) {
   const out = $("actionOut");
   try {
-    // The VRF fee depends on the transaction gas price: quote at 2x today's price, overpay, get refunded.
-    const gasPrice = (await pub.getGasPrice()) * 2n;
-    const raw = await pub.call({ to: CONFIG.RAFFLE, data: encodeFunctionData({ abi: raffleAbi, functionName: "drawPrice" }), gasPrice });
-    const quote = decodeFunctionResult({ abi: raffleAbi, functionName: "drawPrice", data: raw.data });
-    const value = quote * 2n + 1n;
-    const r = await send(out, { address: CONFIG.RAFFLE, abi: raffleAbi, functionName: "requestDraw", args: [BigInt(g.id)], value });
-    if (r) say(out, `Draw requested ${txLink(r.hash)} (fee ≈ ${formatEther(quote)} ETH, excess refunded). Chainlink usually answers within a minute or two.`, "ok");
-    pollUntilChanged(g.id, g.status);
+    // Normally the prepaid deposit covers the fee; if gas spiked, top up the shortfall (excess refunded).
+    const quote = await quoteFee();
+    const value = quote > g.feeDeposit ? (quote - g.feeDeposit) * 2n : 0n;
+    const r = await send(out, { address: CONFIG.RAFFLE, abi: v2Abi, functionName: "draw", args: [BigInt(g.id)], value });
+    if (r) say(out, `Draw requested ${txLink(r.hash)}. Chainlink usually answers within seconds…`, "ok");
+    await refresh();
   } catch (e) {
     say(out, errText(e), "err");
   }
 }
 
-async function settle(g) {
+async function finishPayout(g) {
   const out = $("actionOut");
   try {
-    const snap = await loadSnapshot(g.entrantsURI);
-    if (snap.merkleRoot.toLowerCase() !== g.entrantsRoot.toLowerCase()) throw new Error("Published snapshot does not match the committed Merkle root.");
-    const tree = checkSnapshot(snap);
-    const index = Number(await raffleRead("drawnIndex", [BigInt(g.id)]));
-    const [, holder, tokenId] = snap.tree.values[index].value;
-    say(out, `Winning ticket #${index}: Zombie #${tokenId} held by ${short(holder)}…`, "warn");
-    const r = await send(out, {
-      address: CONFIG.RAFFLE, abi: raffleAbi, functionName: "settle",
-      args: [BigInt(g.id), index, holder, BigInt(tokenId), tree.getProof(index)],
-    });
-    if (r) say(out, `🧟 Zombie sent to ${addrLink(holder)} ${txLink(r.hash)}`, "ok");
+    const r = await send(out, { address: CONFIG.RAFFLE, abi: v2Abi, functionName: "continuePayout", args: [BigInt(g.id)] });
+    if (r) say(out, `Payout sent ${txLink(r.hash)}`, "ok");
+    await refresh();
   } catch (e) {
     say(out, errText(e), "err");
   }
-  await refresh();
 }
 
-function pollUntilChanged(id, status) {
+let polling = false;
+function pollUntilChanged(g) {
+  if (polling) return;
+  polling = true;
   let n = 0;
   const t = setInterval(async () => {
     n++;
-    const g = await raffleRead("getGiveaway", [BigInt(id)]).catch(() => null);
-    if ((g && g.status !== status && g.status !== S.Drawing) || n > 60) {
+    const cur = await pub.readContract({ address: g.raffle, abi: v2Abi, functionName: "getGiveaway", args: [BigInt(g.id)] }).catch(() => null);
+    if ((cur && V2_STATUS[cur.status] !== "drawing") || n > 120) {
       clearInterval(t);
+      polling = false;
       refresh();
     }
-  }, 5000);
+  }, 4000);
 }
 
 // ---------------------------------------------------------------- eligibility check
@@ -383,39 +417,47 @@ $("checkForm").onsubmit = async (ev) => {
   const a = $("checkAddr").value.trim();
   if (!isAddress(a)) return say(out, "Enter a valid wallet address.", "err");
   const addr = getAddress(a);
-  const latest = [...giveaways].reverse().find((g) => g.entrantsURI);
   try {
-    if (latest) {
-      const snap = await loadSnapshot(latest.entrantsURI);
-      const tickets = snap.tree.values.filter((v) => v.value[1].toLowerCase() === addr.toLowerCase());
-      const ex = snap.excluded.find((e) => e.wallet.toLowerCase() === addr.toLowerCase());
-      if (tickets.length) return say(out, `✓ In giveaway #${latest.id} with ${tickets.length} ticket${tickets.length > 1 ? "s" : ""}: Zombie ${tickets.map((t) => "#" + t.value[2]).join(", ")}.`, "ok");
-      if (ex) return say(out, `Not in giveaway #${latest.id}: ${ex.reasons.join(", ")}${ex.listedTokenIds.length ? ` (listed: #${ex.listedTokenIds.join(", #")})` : ""}.`, "err");
-      return say(out, `Not in giveaway #${latest.id}: no Zombies held at the snapshot.`, "err");
+    const g = currentGiveaway();
+    if (g && g.status === "completed" && g.winner.toLowerCase() === addr.toLowerCase()) {
+      return say(out, `🧟 This wallet won giveaway #${g.no} with Zombie #${g.winningTokenId}.`, "ok");
+    }
+    if (raffleOwner && addr.toLowerCase() === raffleOwner.toLowerCase()) {
+      return say(out, "This is the collection owner wallet. Its Zombies never count as tickets.", "err");
     }
     const bal = await pub.readContract({ address: CONFIG.ZOMBIES, abi: zombiesAbi, functionName: "balanceOf", args: [addr] });
+    const open = g && g.v === 2 && g.status === "open";
     say(out, bal > 0n
-      ? `Holds ${bal} Zombie${bal > 1n ? "s" : ""} right now. Keep them unlisted on OpenSea until the snapshot.`
-      : "No Zombies in this wallet right now.", bal > 0n ? "ok" : "err");
+      ? `Holds ${bal} Zombie${bal > 1n ? "s" : ""} right now = ${bal} ticket${bal > 1n ? "s" : ""}${open ? " in the current giveaway, as long as they're still in this wallet when the draw runs" : " in the next giveaway"}.`
+      : "No Zombies in this wallet right now, so no tickets.", bal > 0n ? "ok" : "err");
   } catch (e) {
     say(out, errText(e), "err");
   }
 };
 
-// ---------------------------------------------------------------- admin
+// ---------------------------------------------------------------- admin (v2)
 
-let pendingSnap = null;
 $("aStart").onclick = async () => {
   const out = $("aStartOut");
   try {
     const prize = BigInt($("aPrize").value.trim());
     const closes = Math.floor(new Date($("aCloses").value).getTime() / 1000);
     if (!closes || closes <= Date.now() / 1000) throw new Error("Pick a close time in the future.");
-    if (!confirm(`Lock Zombie #${prize} in the raffle contract until ${new Date(closes * 1000).toLocaleString()}?`)) return;
-    const data = encodeAbiParameters([{ type: "uint64" }], [BigInt(closes)]);
+    const deposit = parseEther($("aFee").value.trim() || "0");
+    if (deposit <= 0n) throw new Error("Add a small ETH deposit for the Chainlink fee.");
+    const quote = await quoteFee().catch(() => 0n);
+    if (quote && deposit < quote) throw new Error(`Deposit at least ${formatEther(quote)} ETH (today's fee at 2x gas). Unused ETH is refunded at the draw.`);
+    if (!confirm(`Lock Zombie #${prize} in the raffle until ${new Date(closes * 1000).toLocaleString()} with a ${formatEther(deposit)} ETH fee deposit?`)) return;
+
+    if (!wallet) return void (await send(out, {}));
+    const approved = await pub.readContract({ address: CONFIG.ZOMBIES, abi: zombiesAbi, functionName: "isApprovedForAll", args: [account, CONFIG.RAFFLE] });
+    if (!approved) {
+      say(out, "One-time step: allow the raffle contract to move the Zombie you choose as a prize…", "warn");
+      const a = await send(out, { address: CONFIG.ZOMBIES, abi: zombiesAbi, functionName: "setApprovalForAll", args: [CONFIG.RAFFLE, true] });
+      if (!a) return;
+    }
     const r = await send(out, {
-      address: CONFIG.ZOMBIES, abi: zombiesAbi, functionName: "safeTransferFrom",
-      args: [account, CONFIG.RAFFLE, prize, data],
+      address: CONFIG.RAFFLE, abi: v2Abi, functionName: "startGiveaway", args: [prize, BigInt(closes)], value: deposit,
     });
     if (r) say(out, `Giveaway started ${txLink(r.hash)}`, "ok");
     await refresh();
@@ -424,97 +466,13 @@ $("aStart").onclick = async () => {
   }
 };
 
-/** Check a snapshot and make it the one the Commit button will record. */
-function usePendingSnapshot(snap, source) {
-  const info = $("aFileInfo");
-  pendingSnap = null;
-  $("aCommit").disabled = true;
-  checkSnapshot(snap);
-  pendingSnap = snap;
-  const s = snap.stats;
-  $("aCid").value = snap.giveawayId;
-  if (!$("aUri").value) $("aUri").value = `snapshots/giveaway-${snap.giveawayId}.json`;
-  const raffleOk = snap.raffle.toLowerCase() === CONFIG.RAFFLE.toLowerCase();
-  const lines = [
-    source,
-    `Giveaway #${snap.giveawayId} · block ${snap.snapshot.block} · ${s.tickets} tickets · ${s.eligibleWallets} wallets · ${s.excludedWallets} excluded`,
-    `Root ${snap.merkleRoot}`,
-  ];
-  if (!raffleOk) lines.push("⚠ Snapshot was made for a different raffle address");
-  say(info, lines.map(esc).join("<br>"), raffleOk ? "ok" : "err");
-  $("aCommit").disabled = !raffleOk;
-}
-
-/** Load the snapshot that is already published on this site (no file picking needed). */
-async function loadPublishedSnapshot() {
-  const info = $("aFileInfo");
-  try {
-    const uri = $("aUri").value.trim() || `snapshots/giveaway-${$("aCid").value}.json`;
-    $("aUri").value = uri;
-    const url = snapshotUrl(uri);
-    if (!url) throw new Error("Use an https URL or a path on this site.");
-    const r = await fetch(url, { cache: "no-store" });
-    if (!r.ok) throw new Error(`No published snapshot at ${uri} yet.`);
-    usePendingSnapshot(await r.json(), `✓ Loaded the published snapshot (${uri})`);
-  } catch (e) {
-    pendingSnap = null;
-    $("aCommit").disabled = true;
-    say(info, errText(e), "warn");
-  }
-}
-
-$("aLoad").onclick = loadPublishedSnapshot;
-
-let autoLoaded = false;
-/** When the owner opens Admin after a giveaway closes, pre-load its published snapshot. */
-function autoLoadSnapshot() {
-  if (autoLoaded || pendingSnap) return;
-  const g = [...giveaways].reverse().find((x) => (x.status === S.Open || x.status === S.Committed) && Date.now() / 1000 >= Number(x.closesAt));
-  if (!g) return;
-  autoLoaded = true;
-  $("aCid").value = g.id;
-  $("aUri").value = `snapshots/giveaway-${g.id}.json`;
-  loadPublishedSnapshot();
-}
-
-$("aFile").onchange = async () => {
-  try {
-    usePendingSnapshot(JSON.parse(await $("aFile").files[0].text()), "Loaded from your computer");
-  } catch (e) {
-    say($("aFileInfo"), errText(e), "err");
-  }
-};
-
-$("aCommit").onclick = async () => {
-  const out = $("aCommitOut");
-  try {
-    const uri = $("aUri").value.trim();
-    const url = snapshotUrl(uri);
-    if (!url) throw new Error("Use an https URL or a path on this site.");
-    // The list must be live before committing: without it nobody can prove the winner and settle.
-    const published = await fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-    if (!published) throw new Error(`Publish the snapshot first: nothing found at ${url}`);
-    checkSnapshot(published);
-    if (published.merkleRoot !== pendingSnap.merkleRoot || published.entrantCount !== pendingSnap.entrantCount) {
-      throw new Error("The published file differs from the one you loaded.");
-    }
-    const r = await send(out, {
-      address: CONFIG.RAFFLE, abi: raffleAbi, functionName: "commitEntrants",
-      args: [BigInt($("aCid").value), pendingSnap.merkleRoot, pendingSnap.entrantCount, uri],
-    });
-    if (r) say(out, `Snapshot committed ${txLink(r.hash)}`, "ok");
-    await refresh();
-  } catch (e) {
-    say(out, errText(e), "err");
-  }
-};
-
 $("aCancel").onclick = async () => {
   const out = $("aCancelOut");
-  const id = BigInt($("aXid").value);
-  if (!confirm(`Cancel giveaway #${id} and return the prize to your wallet?`)) return;
+  const g = [...giveaways].reverse().find((x) => x.v === 2 && x.status === "open");
+  if (!g) return say(out, "There's no open giveaway to cancel.", "err");
+  if (!confirm(`Cancel giveaway #${g.no} and return Zombie #${g.prizeTokenId} and the fee deposit to your wallet?`)) return;
   try {
-    const r = await send(out, { address: CONFIG.RAFFLE, abi: raffleAbi, functionName: "cancel", args: [id] });
+    const r = await send(out, { address: CONFIG.RAFFLE, abi: v2Abi, functionName: "cancel", args: [BigInt(g.id)] });
     if (r) say(out, `Cancelled ${txLink(r.hash)}`, "ok");
     await refresh();
   } catch (e) {

@@ -5,7 +5,8 @@ export const CONFIG = {
   chainName: "Base",
   rpc: "https://mainnet.base.org",
   explorer: "https://basescan.org",
-  RAFFLE: "0x5DBfB702cD34bCaf41f442A8123477556FFc1bFc", // GraveyardRaffle on Base, deployed 2026-10-24
+  RAFFLE: "", // GraveyardRaffleV2 on Base (set after deployment)
+  RAFFLE_V1: "0x5DBfB702cD34bCaf41f442A8123477556FFc1bFc", // GraveyardRaffle v1 (giveaway #0), read-only history
   ZOMBIES: "0xa2d33352e3e2b4fe1b8af7387c375828197bcd9b",
   opensea: "https://opensea.io/item/base/0xa2d33352e3e2b4fe1b8af7387c375828197bcd9b/",
 };
@@ -18,6 +19,7 @@ if (q.get("network") === "base-sepolia") {
     rpc: "https://sepolia.base.org",
     explorer: "https://sepolia.basescan.org",
     RAFFLE: "",
+    RAFFLE_V1: "",
     ZOMBIES: "",
     testnet: true,
   });
@@ -25,3 +27,4 @@ if (q.get("network") === "base-sepolia") {
 if (q.get("zombies")) CONFIG.ZOMBIES = q.get("zombies");
 if (q.get("rpc")) CONFIG.rpc = q.get("rpc");
 if (q.get("raffle")) CONFIG.RAFFLE = q.get("raffle");
+if (q.get("raffle_v1")) CONFIG.RAFFLE_V1 = q.get("raffle_v1");

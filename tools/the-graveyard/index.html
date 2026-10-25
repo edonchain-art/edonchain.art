@@ -72,12 +72,11 @@
   <section id="rules" class="section">
     <h2 class="pixel">How it works</h2>
     <ol class="steps">
-      <li><b>The prize is locked onchain.</b> The Zombie is sent into the raffle contract. From then on it can only go to a winner. If the giveaway is cancelled before the draw, it goes back to the owner.</li>
-      <li><b>One ticket per Zombie.</b> Every Zombies On Base token held at the snapshot is one ticket.</li>
-      <li><b>No listed wallets.</b> When the giveaway closes, any wallet with a Zombie listed on OpenSea is excluded. The collection owner wallet is excluded too.</li>
-      <li><b>Public snapshot.</b> The full ticket list is published, and its Merkle root is recorded in the contract before the draw.</li>
-      <li><b>Chainlink VRF draws.</b> Anyone can request the draw. Chainlink VRF v2.5 returns a verifiable random number onchain.</li>
-      <li><b>Prize delivered by the contract.</b> The winning ticket is fixed the moment Chainlink's number arrives. Anyone can settle: the contract checks the ticket's proof against the committed list and sends the Zombie to the holder recorded in the snapshot. Nothing that happens after the snapshot can change the winner.</li>
+      <li><b>The prize and the fee are locked onchain.</b> One transaction sends the prize Zombie and the Chainlink fee into the raffle contract. The Zombie can only go to a winner, or back to the owner if the giveaway is cancelled before the draw.</li>
+      <li><b>One ticket per Zombie.</b> Every Zombies On Base token is a ticket. Its holder at the moment of the draw wins it. The owner wallet's Zombies and the prize itself don't count.</li>
+      <li><b>No sign-up, no snapshot file.</b> The contract reads the holders onchain when it draws.</li>
+      <li><b>Anyone can draw.</b> After the close, anyone can press "Draw the winner". The prepaid fee pays Chainlink VRF v2.5 for a verifiable random number.</li>
+      <li><b>Picked and paid in one step.</b> When Chainlink's number arrives, the contract picks a random Zombie and sends the prize to its holder in the same transaction, so nobody can react in between.</li>
     </ol>
     <p class="muted small mono" id="contracts"></p>
   </section>
@@ -87,29 +86,19 @@
     <p class="sub">Only visible to the raffle owner wallet.</p>
     <div class="admin-grid">
       <div class="card">
-        <h3>1 · Start a giveaway</h3>
-        <p class="muted small">Sends the prize from your wallet into the raffle contract and opens the entry window.</p>
-        <label>Prize token ID <input id="aPrize" value="1118"></label>
+        <h3>Start a giveaway</h3>
+        <p class="muted small">One press: locks the prize Zombie and the Chainlink fee deposit. The first time, your wallet also asks to approve the raffle contract (once).</p>
+        <label>Prize token ID <input id="aPrize" placeholder="e.g. 1119"></label>
         <label>Closes at (your local time) <input id="aCloses" type="datetime-local"></label>
+        <label>Chainlink fee deposit (ETH) <input id="aFee" value="0.0003"></label>
+        <p class="muted small">Unused deposit is refunded to you at the draw.</p>
         <button class="btn" id="aStart">Lock prize &amp; start</button>
         <div class="note" id="aStartOut"></div>
       </div>
       <div class="card">
-        <h3>2 · Commit the snapshot</h3>
-        <p class="muted small">After it closes, the snapshot is published on this site and loads here automatically. Committing is blocked unless the published file is live and matches exactly.</p>
-        <label>Giveaway ID <input id="aCid" value="0"></label>
-        <label>Published path / URL <input id="aUri" value="snapshots/giveaway-0.json"></label>
-        <button class="btn ghost" id="aLoad" type="button">Load published snapshot</button>
-        <label>Or pick a local file <input id="aFile" type="file" accept=".json"></label>
-        <div class="note" id="aFileInfo"></div>
-        <button class="btn" id="aCommit" disabled>Commit snapshot</button>
-        <div class="note" id="aCommitOut"></div>
-      </div>
-      <div class="card">
         <h3>Cancel</h3>
-        <p class="muted small">Only possible before a draw is requested. Returns the prize to your wallet.</p>
-        <label>Giveaway ID <input id="aXid" value="0"></label>
-        <button class="btn danger" id="aCancel">Cancel giveaway</button>
+        <p class="muted small">Only before the draw. Returns the prize and the fee deposit to your wallet.</p>
+        <button class="btn danger" id="aCancel">Cancel open giveaway</button>
         <div class="note" id="aCancelOut"></div>
       </div>
     </div>
