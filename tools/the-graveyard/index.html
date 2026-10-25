@@ -75,7 +75,7 @@
       <li><b>The prize and the fee are locked onchain.</b> One transaction sends the prize Zombie and the Chainlink fee into the raffle contract. The Zombie can only go to a winner, or back to the owner if the giveaway is cancelled before the draw.</li>
       <li><b>One ticket per Zombie.</b> Every Zombies On Base token is a ticket. Its holder at the moment of the draw wins it. The owner wallet's Zombies and the prize itself don't count.</li>
       <li><b>No sign-up, no snapshot file.</b> The contract reads the holders onchain when it draws.</li>
-      <li><b>Anyone can draw.</b> After the close, anyone can press "Draw the winner". The prepaid fee pays Chainlink VRF v2.5 for a verifiable random number.</li>
+      <li><b>Drawn automatically at the close.</b> Chainlink Automation triggers the draw within seconds of the countdown ending, and the prepaid fee pays Chainlink VRF v2.5 for a verifiable random number. If it ever doesn't, anyone can press "Draw the winner".</li>
       <li><b>Picked and paid in one step.</b> When Chainlink's number arrives, the contract picks a random Zombie and sends the prize to its holder in the same transaction, so nobody can react in between.</li>
     </ol>
     <p class="muted small mono" id="contracts"></p>

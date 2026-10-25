@@ -262,7 +262,7 @@ async function renderCurrent() {
         ${canDraw ? `<button class="btn big" id="drawBtn">Draw the winner</button>` : ""}
         ${canFinish ? `<button class="btn big" id="finishBtn">Finish payout</button>` : ""}
       </div>
-      ${canDraw ? `<p class="muted small">Anyone can press this. The Chainlink fee is already prepaid; you only pay gas (a cent or less). Chainlink picks a random Zombie and the contract sends the prize to its holder within seconds.</p>` : ""}
+      ${canDraw ? `<p class="muted small">Chainlink Automation draws automatically within seconds of the close. If it hasn't yet, anyone can press this: the Chainlink fee is prepaid, you only pay gas (a cent or less).</p>` : ""}
       ${live.status === "drawing" ? `<p class="muted small">Waiting for Chainlink. This page updates by itself.</p>` : ""}
       <div class="note" id="actionOut"></div>
     </div>`;
