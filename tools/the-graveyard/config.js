@@ -5,7 +5,7 @@ export const CONFIG = {
   chainName: "Base",
   rpc: "https://mainnet.base.org",
   explorer: "https://basescan.org",
-  RAFFLE: "", // GraveyardRaffleV2 on Base (set after deployment)
+  RAFFLE: "0x908CE1511e021Fb3Fd4eaE350E57BaD8114724b8", // GraveyardRaffleV2 on Base, deployed 2026-10-24
   RAFFLE_V1: "0x5DBfB702cD34bCaf41f442A8123477556FFc1bFc", // GraveyardRaffle v1 (giveaway #0), read-only history
   ZOMBIES: "0xa2d33352e3e2b4fe1b8af7387c375828197bcd9b",
   opensea: "https://opensea.io/item/base/0xa2d33352e3e2b4fe1b8af7387c375828197bcd9b/",
