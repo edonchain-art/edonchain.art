@@ -185,28 +185,40 @@ function timeline(g) {
   </ol>`;
 }
 
+// One timer drives every countdown on the page (one per open giveaway).
 let countdownTimer = null;
-function startCountdown(closesAt) {
+function startCountdowns() {
   clearInterval(countdownTimer);
-  const el = $("countdown");
-  if (!el) return;
+  const els = [...document.querySelectorAll(".countdown[data-closes]")];
+  if (els.length === 0) return;
   const tick = () => {
-    const left = Number(closesAt) - Math.floor(Date.now() / 1000);
-    if (left <= 0) {
-      el.textContent = "Entries closed";
-      clearInterval(countdownTimer);
-      refresh();
-      return;
+    let closedNow = false;
+    for (const el of els) {
+      if (el.dataset.done) continue;
+      const left = Number(el.dataset.closes) - Math.floor(Date.now() / 1000);
+      if (left <= 0) {
+        el.textContent = "Entries closed";
+        el.dataset.done = "1";
+        closedNow = true;
+        continue;
+      }
+      const d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600), m = Math.floor((left % 3600) / 60), s = left % 60;
+      el.textContent = `${d ? d + "d " : ""}${String(h).padStart(2, "0")}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`;
     }
-    const d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600), m = Math.floor((left % 3600) / 60), s = left % 60;
-    el.textContent = `${d ? d + "d " : ""}${String(h).padStart(2, "0")}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`;
+    if (closedNow) refresh();
   };
   tick();
   countdownTimer = setInterval(tick, 1000);
 }
 
-function currentGiveaway() {
-  return [...giveaways].reverse().find((g) => g.status !== "cancelled") || giveaways[giveaways.length - 1];
+const isActive = (g) => ["open", "committed", "drawing", "drawn"].includes(g.status);
+
+/** Every giveaway still running (soonest close first); otherwise the latest finished one. */
+function currentGiveaways() {
+  const active = giveaways.filter(isActive).sort((a, b) => Number(a.closesAt) - Number(b.closesAt) || a.no - b.no);
+  if (active.length) return active;
+  const last = [...giveaways].reverse().find((g) => g.status !== "cancelled") || giveaways[giveaways.length - 1];
+  return last ? [last] : [];
 }
 
 async function renderCurrent() {
@@ -215,11 +227,25 @@ async function renderCurrent() {
     body.innerHTML = `<div class="card"><p class="pixel small">The Graveyard is waking up…</p><p class="muted">The raffle contract hasn't been deployed yet. Check back soon.</p></div>`;
     return;
   }
-  const live = currentGiveaway();
-  if (!live) {
+  const list = currentGiveaways();
+  $("currentTitle").textContent = list.length > 1 ? `Current giveaways · ${list.length}` : "Current giveaway";
+  if (list.length === 0) {
     body.innerHTML = `<div class="card"><p class="pixel small">No giveaway yet</p><p class="muted">The next fully onchain Zombie is coming. Hold your Zombies.</p></div>`;
     return;
   }
+  const html = await Promise.all(list.map(giveawayHtml));
+  body.innerHTML = html.join("");
+  for (const live of list) {
+    const card = body.querySelector(`[data-no="${live.no}"]`);
+    const out = card.querySelector(".action-out");
+    card.querySelector(".draw-btn")?.addEventListener("click", () => drawWinner(live, out));
+    card.querySelector(".finish-btn")?.addEventListener("click", () => finishPayout(live, out));
+    if (live.status === "drawing") pollUntilChanged(live);
+  }
+  startCountdowns();
+}
+
+async function giveawayHtml(live) {
   const meta = await tokenMeta(live.prizeTokenId);
   const snap = live.v === 1 && live.entrantsURI ? await loadSnapshot(live.entrantsURI).catch(() => null) : null;
   const rootOk = snap && snap.merkleRoot?.toLowerCase() === String(live.entrantsRoot).toLowerCase();
@@ -245,7 +271,7 @@ async function renderCurrent() {
   if (["drawing", "drawn", "completed"].includes(live.status)) kv.push(`<dt>VRF request</dt><dd><code>${String(live.requestId).slice(0, 18)}…</code></dd>`);
   if (["drawn", "completed"].includes(live.status)) kv.push(`<dt>Random word</dt><dd><code>${String(live.randomWord).slice(0, 24)}…</code></dd>`);
 
-  body.innerHTML = `
+  return `<div class="current" data-no="${live.no}">
     <div class="prize">
       ${meta.image ? `<img src="${esc(meta.image)}" alt="${esc(meta.name)}">` : `<div class="card">No image</div>`}
       ${meta.onchain ? `<span class="badge">Fully onchain</span>` : ""}
@@ -254,22 +280,19 @@ async function renderCurrent() {
     </div>
     <div>
       <div class="status-head"><h3>Giveaway #${live.no}</h3>${statusChip(live)}</div>
-      ${live.status === "open" && !isClosed(live) ? `<div class="countdown" id="countdown"></div>` : ""}
+      ${live.status === "open" && !isClosed(live) ? `<div class="countdown" data-closes="${live.closesAt}"></div>` : ""}
       ${winnerHtml}
       ${timeline(live)}
       <dl class="kv">${kv.join("")}</dl>
       <div class="actions">
-        ${canDraw ? `<button class="btn big" id="drawBtn">Draw the winner</button>` : ""}
-        ${canFinish ? `<button class="btn big" id="finishBtn">Finish payout</button>` : ""}
+        ${canDraw ? `<button class="btn big draw-btn">Draw the winner</button>` : ""}
+        ${canFinish ? `<button class="btn big finish-btn">Finish payout</button>` : ""}
       </div>
       ${canDraw ? `<p class="muted small">The Graveyard keeper draws automatically within a few minutes of the close. If it hasn't yet, anyone can press this: the Chainlink fee is prepaid, you only pay gas (a cent or less).</p>` : ""}
       ${live.status === "drawing" ? `<p class="muted small">Waiting for Chainlink. This page updates by itself.</p>` : ""}
-      <div class="note" id="actionOut"></div>
-    </div>`;
-  if (live.status === "open" && !isClosed(live)) startCountdown(live.closesAt);
-  if (canDraw) $("drawBtn").onclick = () => drawWinner(live);
-  if (canFinish) $("finishBtn").onclick = () => finishPayout(live);
-  if (live.status === "drawing") pollUntilChanged(live);
+      <div class="note action-out"></div>
+    </div>
+  </div>`;
 }
 
 async function renderLog() {
@@ -321,6 +344,7 @@ async function refresh() {
     await Promise.all([renderCurrent(), renderLog()]);
     const isOwner = !!(account && raffleOwner && account.toLowerCase() === raffleOwner.toLowerCase());
     $("admin").hidden = !isOwner;
+    if (isOwner) renderCancelChoices();
     $("navAdmin").hidden = !isOwner;
   } catch (e) {
     $("currentBody").innerHTML = `<div class="card"><p class="note err">Could not read from Base: ${errText(e)}</p></div>`;
@@ -368,8 +392,7 @@ async function quoteFee() {
   return decodeFunctionResult({ abi: v2Abi, functionName: "drawPrice", data: raw.data });
 }
 
-async function drawWinner(g) {
-  const out = $("actionOut");
+async function drawWinner(g, out) {
   try {
     // Normally the prepaid deposit covers the fee; if gas spiked, top up the shortfall (excess refunded).
     const quote = await quoteFee();
@@ -382,8 +405,7 @@ async function drawWinner(g) {
   }
 }
 
-async function finishPayout(g) {
-  const out = $("actionOut");
+async function finishPayout(g, out) {
   try {
     const r = await send(out, { address: CONFIG.RAFFLE, abi: v2Abi, functionName: "continuePayout", args: [BigInt(g.id)] });
     if (r) say(out, `Payout sent ${txLink(r.hash)}`, "ok");
@@ -393,17 +415,17 @@ async function finishPayout(g) {
   }
 }
 
-let polling = false;
+const polling = new Set(); // giveaway numbers being watched
 function pollUntilChanged(g) {
-  if (polling) return;
-  polling = true;
+  if (polling.has(g.no)) return;
+  polling.add(g.no);
   let n = 0;
   const t = setInterval(async () => {
     n++;
     const cur = await pub.readContract({ address: g.raffle, abi: v2Abi, functionName: "getGiveaway", args: [BigInt(g.id)] }).catch(() => null);
     if ((cur && V2_STATUS[cur.status] !== "drawing") || n > 120) {
       clearInterval(t);
-      polling = false;
+      polling.delete(g.no);
       refresh();
     }
   }, 4000);
@@ -418,17 +440,19 @@ $("checkForm").onsubmit = async (ev) => {
   if (!isAddress(a)) return say(out, "Enter a valid wallet address.", "err");
   const addr = getAddress(a);
   try {
-    const g = currentGiveaway();
-    if (g && g.status === "completed" && g.winner.toLowerCase() === addr.toLowerCase()) {
-      return say(out, `🧟 This wallet won giveaway #${g.no} with Zombie #${g.winningTokenId}.`, "ok");
+    const won = giveaways.filter((g) => g.status === "completed" && g.winner.toLowerCase() === addr.toLowerCase());
+    if (won.length) {
+      return say(out, `🧟 This wallet won ${won.map((g) => `giveaway #${g.no} with Zombie #${g.winningTokenId}`).join(" and ")}.`, "ok");
     }
     if (raffleOwner && addr.toLowerCase() === raffleOwner.toLowerCase()) {
       return say(out, "This is the collection owner wallet. Its Zombies never count as tickets.", "err");
     }
     const bal = await pub.readContract({ address: CONFIG.ZOMBIES, abi: zombiesAbi, functionName: "balanceOf", args: [addr] });
-    const open = g && g.v === 2 && g.status === "open";
+    const open = giveaways.filter((g) => g.v === 2 && g.status === "open").length;
+    const where = open > 1 ? ` in each of the ${open} open giveaways, as long as they're still in this wallet when each draw runs`
+      : open ? " in the current giveaway, as long as they're still in this wallet when the draw runs" : " in the next giveaway";
     say(out, bal > 0n
-      ? `Holds ${bal} Zombie${bal > 1n ? "s" : ""} right now = ${bal} ticket${bal > 1n ? "s" : ""}${open ? " in the current giveaway, as long as they're still in this wallet when the draw runs" : " in the next giveaway"}.`
+      ? `Holds ${bal} Zombie${bal > 1n ? "s" : ""} right now = ${bal} ticket${bal > 1n ? "s" : ""}${where}.`
       : "No Zombies in this wallet right now, so no tickets.", bal > 0n ? "ok" : "err");
   } catch (e) {
     say(out, errText(e), "err");
@@ -466,9 +490,20 @@ $("aStart").onclick = async () => {
   }
 };
 
+function renderCancelChoices() {
+  const sel = $("aCancelNo");
+  const keep = sel.value;
+  const open = giveaways.filter((g) => g.v === 2 && g.status === "open");
+  sel.innerHTML = open.length
+    ? open.map((g) => `<option value="${g.no}">#${g.no} · Zombie #${g.prizeTokenId} · closes ${esc(fmtDate(g.closesAt))}</option>`).join("")
+    : `<option value="">No open giveaway</option>`;
+  if (open.some((g) => String(g.no) === keep)) sel.value = keep;
+  sel.disabled = $("aCancel").disabled = open.length === 0;
+}
+
 $("aCancel").onclick = async () => {
   const out = $("aCancelOut");
-  const g = [...giveaways].reverse().find((x) => x.v === 2 && x.status === "open");
+  const g = giveaways.find((x) => x.v === 2 && x.status === "open" && String(x.no) === $("aCancelNo").value);
   if (!g) return say(out, "There's no open giveaway to cancel.", "err");
   if (!confirm(`Cancel giveaway #${g.no} and return Zombie #${g.prizeTokenId} and the fee deposit to your wallet?`)) return;
   try {

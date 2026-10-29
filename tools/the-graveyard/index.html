@@ -47,8 +47,8 @@
   </div>
 
   <section id="current" class="section">
-    <h2 class="pixel">Current giveaway</h2>
-    <div id="currentBody" class="current"><p class="muted">Loading from Base…</p></div>
+    <h2 class="pixel" id="currentTitle">Current giveaway</h2>
+    <div id="currentBody" class="currents"><p class="muted">Loading from Base…</p></div>
   </section>
 
   <section id="check" class="section">
@@ -98,7 +98,8 @@
       <div class="card">
         <h3>Cancel</h3>
         <p class="muted small">Only before the draw. Returns the prize and the fee deposit to your wallet.</p>
-        <button class="btn danger" id="aCancel">Cancel open giveaway</button>
+        <label>Giveaway <select id="aCancelNo"></select></label>
+        <button class="btn danger" id="aCancel">Cancel this giveaway</button>
         <div class="note" id="aCancelOut"></div>
       </div>
     </div>
