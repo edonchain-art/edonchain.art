@@ -228,13 +228,15 @@ async function renderCurrent() {
     return;
   }
   const list = currentGiveaways();
-  $("currentTitle").textContent = list.length > 1 ? `Current giveaways · ${list.length}` : "Current giveaway";
+  const running = list.some(isActive);
+  $("currentTitle").textContent = !running ? "Last giveaway" : list.length > 1 ? `Current giveaways · ${list.length}` : "Current giveaway";
   if (list.length === 0) {
+    $("currentTitle").textContent = "Current giveaway";
     body.innerHTML = `<div class="card"><p class="pixel small">No giveaway yet</p><p class="muted">The next fully onchain Zombie is coming. Hold your Zombies.</p></div>`;
     return;
   }
   const html = await Promise.all(list.map(giveawayHtml));
-  body.innerHTML = html.join("");
+  body.innerHTML = (running ? "" : `<p class="muted">No giveaway is running right now. The next fully onchain Zombie is coming: hold your Zombies.</p>`) + html.join("");
   for (const live of list) {
     const card = body.querySelector(`[data-no="${live.no}"]`);
     const out = card.querySelector(".action-out");
