@@ -4,6 +4,7 @@ export const CONFIG = {
   chainId: 8453,
   chainName: "Base",
   rpc: "https://mainnet.base.org",
+  ethRpc: "https://ethereum-rpc.publicnode.com", // Ethereum mainnet, for ENS names only
   explorer: "https://basescan.org",
   RAFFLE: "0x908CE1511e021Fb3Fd4eaE350E57BaD8114724b8", // GraveyardRaffleV2 on Base, deployed 2026-10-24
   RAFFLE_V1: "0x5DBfB702cD34bCaf41f442A8123477556FFc1bFc", // GraveyardRaffle v1 (giveaway #0), read-only history

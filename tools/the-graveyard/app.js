@@ -10,7 +10,9 @@ import {
   formatEther,
   getAddress,
   isAddress,
+  namehash,
 } from "https://esm.sh/viem@2.21.54";
+import { mainnet } from "https://esm.sh/viem@2.21.54/chains";
 import { StandardMerkleTree } from "https://esm.sh/@openzeppelin/merkle-tree@1.0.8";
 import { CONFIG } from "./config.js";
 import { createWallet, walletErrorText } from "../../assets/wallet.js";
@@ -53,9 +55,12 @@ const chain = {
   contracts: { multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" } },
 };
 const pub = createPublicClient({ chain, transport: http(CONFIG.rpc) });
+const eth = createPublicClient({ chain: mainnet, transport: http(CONFIG.ethRpc) });
 const $ = (id) => document.getElementById(id);
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
-const addrLink = (a) => `<a href="${CONFIG.explorer}/address/${a}" target="_blank" rel="noopener">${short(a)}</a>`;
+// Wallet links show the short address first; applyNames() swaps in an ENS name or Basename when one is set.
+const addrLink = (a) => `<a class="addr" data-addr="${a}" href="${CONFIG.explorer}/address/${a}" target="_blank" rel="noopener" title="${a}">${short(a)}</a>`;
+const plainLink = (a) => `<a href="${CONFIG.explorer}/address/${a}" target="_blank" rel="noopener">${short(a)}</a>`;
 const txLink = (h) => `<a href="${CONFIG.explorer}/tx/${h}" target="_blank" rel="noopener">${short(h)}</a>`;
 const fmtDate = (s) => new Date(Number(s) * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -146,6 +151,59 @@ async function loadGiveaways() {
     readAll(CONFIG.RAFFLE, v2Abi, V2_STATUS, 2),
   ]);
   giveaways = [...a, ...b].map((g, i) => ({ ...g, no: i }));
+}
+
+// ---------------------------------------------------------------- names (ENS + Basenames)
+
+const BASENAME_REVERSE = "0x0000000000D8e504002cC26E3Ec46D81971C1664"; // Basenames L2ReverseRegistrar on Base
+const BASENAME_RESOLVER = "0xC6d566A56A1aFf6508b41f6c90ff131615583BCD"; // Basenames L2Resolver on Base
+const basenameAbi = parseAbi([
+  "function nameForAddr(address) view returns (string)",
+  "function name(bytes32) view returns (string)",
+  "function addr(bytes32) view returns (address)",
+]);
+const nameCache = new Map();
+
+/** Basename for an address, only if it resolves back to the same address. */
+async function basenameOf(addr) {
+  let name = await pub.readContract({ address: BASENAME_REVERSE, abi: basenameAbi, functionName: "nameForAddr", args: [addr] }).catch(() => "");
+  if (!name) {
+    const node = namehash(`${addr.slice(2).toLowerCase()}.80002105.reverse`);
+    name = await pub.readContract({ address: BASENAME_RESOLVER, abi: basenameAbi, functionName: "name", args: [node] }).catch(() => "");
+  }
+  if (!name) return null;
+  const back = await basenameAddress(name);
+  return back && back.toLowerCase() === addr.toLowerCase() ? name : null;
+}
+const basenameAddress = (name) =>
+  pub.readContract({ address: BASENAME_RESOLVER, abi: basenameAbi, functionName: "addr", args: [namehash(name)] }).catch(() => null);
+
+/** ENS primary name (Ethereum), else Basename (Base), else null. Cached per address. */
+function nameOf(addr) {
+  const key = addr.toLowerCase();
+  if (!nameCache.has(key)) {
+    nameCache.set(key, (async () => {
+      const ens = await eth.getEnsName({ address: getAddress(addr) }).catch(() => null);
+      if (ens) return ens;
+      return CONFIG.testnet ? null : basenameOf(getAddress(addr));
+    })());
+  }
+  return nameCache.get(key);
+}
+
+/** Name → address: Basenames on Base, any other name through ENS. */
+async function addressOf(name) {
+  const n = name.toLowerCase();
+  const a = n.endsWith(".base.eth") ? await basenameAddress(n) : await eth.getEnsAddress({ name: n }).catch(() => null);
+  return a && a !== "0x0000000000000000000000000000000000000000" ? getAddress(a) : null;
+}
+
+function applyNames(root = document) {
+  for (const el of root.querySelectorAll("a.addr[data-addr]")) {
+    nameOf(el.dataset.addr).then((n) => {
+      if (n && el.isConnected) el.textContent = n;
+    });
+  }
 }
 
 // ---------------------------------------------------------------- render
@@ -332,9 +390,9 @@ function renderHeroStats() {
     stat("VRF v2.5", "Chainlink") +
     stat(CONFIG.chainName, "Network");
   const parts = [];
-  if (CONFIG.RAFFLE) parts.push(`Raffle v2: ${addrLink(CONFIG.RAFFLE)}`);
-  if (CONFIG.RAFFLE_V1) parts.push(`Raffle v1 (giveaway #0): ${addrLink(CONFIG.RAFFLE_V1)}`);
-  parts.push(`Zombies On Base: ${addrLink(CONFIG.ZOMBIES)}`);
+  if (CONFIG.RAFFLE) parts.push(`Raffle v2: ${plainLink(CONFIG.RAFFLE)}`);
+  if (CONFIG.RAFFLE_V1) parts.push(`Raffle v1 (giveaway #0): ${plainLink(CONFIG.RAFFLE_V1)}`);
+  parts.push(`Zombies On Base: ${plainLink(CONFIG.ZOMBIES)}`);
   $("contracts").innerHTML = parts.join(" · ");
 }
 
@@ -344,6 +402,7 @@ async function refresh() {
     if (CONFIG.RAFFLE) raffleOwner = await pub.readContract({ address: CONFIG.RAFFLE, abi: v2Abi, functionName: "owner" });
     renderHeroStats();
     await Promise.all([renderCurrent(), renderLog()]);
+    applyNames();
     const isOwner = !!(account && raffleOwner && account.toLowerCase() === raffleOwner.toLowerCase());
     $("admin").hidden = !isOwner;
     if (isOwner) renderCancelChoices();
@@ -364,6 +423,12 @@ const walletConn = createWallet({
     const btn = $("connect");
     btn.textContent = account ? `${short(account)}${wrongChain ? " · wrong network" : ""}` : "Connect Wallet";
     btn.classList.toggle("connected", !!account);
+    if (account) {
+      const mine = account;
+      nameOf(mine).then((n) => {
+        if (n && account === mine) btn.textContent = `${n}${wrongChain ? " · wrong network" : ""}`;
+      });
+    }
     refresh();
   },
 });
@@ -439,23 +504,32 @@ $("checkForm").onsubmit = async (ev) => {
   ev.preventDefault();
   const out = $("checkOut");
   const a = $("checkAddr").value.trim();
-  if (!isAddress(a)) return say(out, "Enter a valid wallet address.", "err");
-  const addr = getAddress(a);
+  let addr;
+  if (isAddress(a)) addr = getAddress(a);
+  else if (/^[^\s]+\.[a-z]+$/i.test(a)) {
+    say(out, `Looking up ${esc(a)}…`, "warn");
+    addr = await addressOf(a);
+    if (!addr) return say(out, `${esc(a)} doesn't point to a wallet.`, "err");
+  } else return say(out, "Enter a wallet address, an ENS name or a Basename.", "err");
   try {
+    const who = isAddress(a) ? addrLink(addr) : `${esc(a.toLowerCase())} (${plainLink(addr)})`;
     const won = giveaways.filter((g) => g.status === "completed" && g.winner.toLowerCase() === addr.toLowerCase());
     if (won.length) {
-      return say(out, `🧟 This wallet won ${won.map((g) => `giveaway #${g.no} with Zombie #${g.winningTokenId}`).join(" and ")}.`, "ok");
+      say(out, `🧟 ${who} won ${won.map((g) => `giveaway #${g.no} with Zombie #${g.winningTokenId}`).join(" and ")}.`, "ok");
+      return applyNames(out);
     }
     if (raffleOwner && addr.toLowerCase() === raffleOwner.toLowerCase()) {
-      return say(out, "This is the collection owner wallet. Its Zombies never count as tickets.", "err");
+      say(out, `${who} is the collection owner wallet. Its Zombies never count as tickets.`, "err");
+      return applyNames(out);
     }
     const bal = await pub.readContract({ address: CONFIG.ZOMBIES, abi: zombiesAbi, functionName: "balanceOf", args: [addr] });
     const open = giveaways.filter((g) => g.v === 2 && g.status === "open").length;
     const where = open > 1 ? ` in each of the ${open} open giveaways, as long as they're still in this wallet when each draw runs`
       : open ? " in the current giveaway, as long as they're still in this wallet when the draw runs" : " in the next giveaway";
     say(out, bal > 0n
-      ? `Holds ${bal} Zombie${bal > 1n ? "s" : ""} right now = ${bal} ticket${bal > 1n ? "s" : ""}${where}.`
-      : "No Zombies in this wallet right now, so no tickets.", bal > 0n ? "ok" : "err");
+      ? `${who} holds ${bal} Zombie${bal > 1n ? "s" : ""} right now = ${bal} ticket${bal > 1n ? "s" : ""}${where}.`
+      : `No Zombies in ${who} right now, so no tickets.`, bal > 0n ? "ok" : "err");
+    applyNames(out);
   } catch (e) {
     say(out, errText(e), "err");
   }
