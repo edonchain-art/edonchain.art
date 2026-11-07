@@ -37,6 +37,21 @@ const v2Abi = parseAbi([
   "function continuePayout(uint256 id)",
   "function cancel(uint256 id)",
 ]);
+// V3 = V2 plus a minimum holding per giveaway.
+const v3Abi = parseAbi([
+  "struct Giveaway { uint256 prizeTokenId; uint64 openedAt; uint64 closesAt; uint64 requestedAt; uint64 completedAt; uint8 status; uint32 ticketCount; uint32 attempts; uint32 minHolding; uint256 feeDeposit; uint256 feePaid; uint256 requestId; uint256 randomWord; address winner; uint256 winningTokenId; }",
+  "function owner() view returns (address)",
+  "function giveawayCount() view returns (uint256)",
+  "function getGiveaway(uint256 id) view returns (Giveaway)",
+  "function drawPrice() view returns (uint256)",
+  "function startGiveaway(uint256 prizeTokenId, uint64 closesAt, uint32 minHolding) payable returns (uint256)",
+  "function draw(uint256 id) payable returns (uint256)",
+  "function continuePayout(uint256 id)",
+  "function cancel(uint256 id)",
+]);
+const abiOf = (g) => (g.v === 3 ? v3Abi : v2Abi);
+// New giveaways start on V3 once it's deployed; V2 stays readable for history.
+const START = CONFIG.RAFFLE_V3 ? { address: CONFIG.RAFFLE_V3, abi: v3Abi, v: 3 } : { address: CONFIG.RAFFLE, abi: v2Abi, v: 2 };
 const zombiesAbi = parseAbi([
   "function tokenURI(uint256) view returns (string)",
   "function balanceOf(address) view returns (uint256)",
@@ -142,15 +157,17 @@ async function readAll(address, abi, statuses, v) {
     requestId: g.requestId, randomWord: g.randomWord,
     entrantsURI: g.entrantsURI, entrantsRoot: g.entrantsRoot, winningIndex: g.winningIndex,
     feeDeposit: g.feeDeposit, feePaid: g.feePaid, attempts: g.attempts,
+    minHolding: Number(g.minHolding ?? 1),
   }));
 }
 
 async function loadGiveaways() {
-  const [a, b] = await Promise.all([
+  const [a, b, c] = await Promise.all([
     readAll(CONFIG.RAFFLE_V1, v1Abi, V1_STATUS, 1),
     readAll(CONFIG.RAFFLE, v2Abi, V2_STATUS, 2),
+    readAll(CONFIG.RAFFLE_V3, v3Abi, V2_STATUS, 3),
   ]);
-  giveaways = [...a, ...b].map((g, i) => ({ ...g, no: i }));
+  giveaways = [...a, ...b, ...c].map((g, i) => ({ ...g, no: i }));
 }
 
 // ---------------------------------------------------------------- names (ENS + Basenames)
@@ -215,7 +232,7 @@ function statusChip(g) {
   if (g.status === "open") return `<span class="chip warn">Closed · ready to draw</span>`;
   if (g.status === "committed") return `<span class="chip warn">Snapshot committed</span>`;
   if (g.status === "drawing") return `<span class="chip warn">Waiting for Chainlink VRF</span>`;
-  if (g.status === "drawn") return `<span class="chip warn">${g.v === 2 ? "Winner picked · payout pending" : "Random number in · ready to settle"}</span>`;
+  if (g.status === "drawn") return `<span class="chip warn">${g.v >= 2 ? "Winner picked · payout pending" : "Random number in · ready to settle"}</span>`;
   if (g.status === "completed") return `<span class="chip done">Completed</span>`;
   return `<span class="chip">Cancelled</span>`;
 }
@@ -238,7 +255,7 @@ function timeline(g) {
   return `<ol class="timeline">
     ${step("Prize and Chainlink fee locked in the contract", true, false, fmtDate(g.openedAt))}
     ${step("Entries close", closed, !closed, fmtDate(g.closesAt))}
-    ${step("Draw requested from Chainlink VRF", drawn && done("drawing"), closed && g.status === "open", drawn ? `${fmtDate(g.requestedAt)} · ${g.tickets} tickets` : "")}
+    ${step("Draw requested from Chainlink VRF", drawn && done("drawing"), closed && g.status === "open", drawn ? `${fmtDate(g.requestedAt)} · ${g.minHolding > 1 ? `wallets with ${g.minHolding}+ Zombies` : `${g.tickets} tickets`}` : "")}
     ${step("Random Zombie picked · prize sent to its holder", g.status === "completed", g.status === "drawing" || g.status === "drawn", g.status === "completed" ? fmtDate(g.completedAt) : "")}
   </ol>`;
 }
@@ -281,7 +298,7 @@ function currentGiveaways() {
 
 async function renderCurrent() {
   const body = $("currentBody");
-  if (!CONFIG.RAFFLE && !CONFIG.RAFFLE_V1) {
+  if (!CONFIG.RAFFLE && !CONFIG.RAFFLE_V1 && !CONFIG.RAFFLE_V3) {
     body.innerHTML = `<div class="card"><p class="pixel small">The Graveyard is waking up…</p><p class="muted">The raffle contract hasn't been deployed yet. Check back soon.</p></div>`;
     return;
   }
@@ -313,10 +330,10 @@ async function giveawayHtml(live) {
   let winnerHtml = "";
   if (live.status === "completed") {
     winnerHtml = `<div class="winner"><div class="pixel">Winner</div>
-      <div>${addrLink(live.winner)} won with Zombie #${live.winningTokenId}${live.v === 1 ? ` (ticket #${live.winningIndex} of ${live.tickets})` : ` (1 of ${live.tickets} Zombies)`}.</div></div>`;
+      <div>${addrLink(live.winner)} won with Zombie #${live.winningTokenId}${live.v === 1 ? ` (ticket #${live.winningIndex} of ${live.tickets})` : live.minHolding > 1 ? ` (drawn from Zombies in wallets holding ${live.minHolding}+)` : ` (1 of ${live.tickets} Zombies)`}.</div></div>`;
   }
-  const canDraw = live.v === 2 && live.status === "open" && isClosed(live);
-  const canFinish = live.v === 2 && live.status === "drawn";
+  const canDraw = live.v >= 2 && live.status === "open" && isClosed(live);
+  const canFinish = live.v >= 2 && live.status === "drawn";
 
   const kv = [];
   if (live.v === 1 && live.tickets) {
@@ -324,8 +341,10 @@ async function giveawayHtml(live) {
     if (snap) kv.push(`<dt>Snapshot</dt><dd>block ${snap.snapshot.block} · <a href="${esc(snapshotUrl(live.entrantsURI))}" target="_blank" rel="noopener">full list</a></dd>`);
     kv.push(`<dt>Merkle root</dt><dd><code>${live.entrantsRoot}</code> ${snap ? (rootOk ? "✓ matches the published list" : "⚠ does not match the published list") : ""}</dd>`);
   }
-  if (live.v === 2) {
-    kv.push(`<dt>Tickets</dt><dd>${live.tickets ? `${live.tickets} Zombies at the draw` : "Every Zombie held at the draw"} · the owner's Zombies and the prize don't count</dd>`);
+  if (live.v >= 2) {
+    const min = live.minHolding;
+    if (min > 1) kv.push(`<dt>Who can win</dt><dd>Wallets holding ${min} or more Zombies at the draw. Every Zombie they hold is a ticket.</dd>`);
+    kv.push(`<dt>Tickets</dt><dd>${min > 1 ? `Every Zombie in a wallet holding ${min}+` : live.tickets ? `${live.tickets} Zombies at the draw` : "Every Zombie held at the draw"} · the owner's Zombies and the prize don't count</dd>`);
     kv.push(`<dt>Chainlink fee</dt><dd>${live.feePaid ? `${formatEther(live.feePaid)} ETH paid from the deposit` : `${formatEther(live.feeDeposit)} ETH deposited`}</dd>`);
   }
   if (["drawing", "drawn", "completed"].includes(live.status)) kv.push(`<dt>VRF request</dt><dd><code>${String(live.requestId).slice(0, 18)}…</code></dd>`);
@@ -340,6 +359,7 @@ async function giveawayHtml(live) {
     </div>
     <div>
       <div class="status-head"><h3>Giveaway #${live.no}</h3>${statusChip(live)}</div>
+      ${live.minHolding > 1 ? `<p class="rule">Hold <b>${live.minHolding}+ Zombies</b> at the draw to win</p>` : ""}
       ${live.status === "open" && !isClosed(live) ? `<div class="countdown" data-closes="${live.closesAt}"></div>` : ""}
       ${winnerHtml}
       ${timeline(live)}
@@ -374,7 +394,7 @@ async function renderLog() {
       <div class="body">
         <div class="title">#${g.no} · ${esc(meta.name)}</div>
         ${result}
-        ${g.tickets ? `<div class="line"><span>Tickets</span><b>${g.tickets}</b></div>` : ""}
+        ${g.minHolding > 1 ? `<div class="line"><span>Open to</span><b>${g.minHolding}+ Zombies</b></div>` : g.tickets ? `<div class="line"><span>Tickets</span><b>${g.tickets}</b></div>` : ""}
       </div></div>`;
   }));
   el.innerHTML = cards.join("");
@@ -390,6 +410,7 @@ function renderHeroStats() {
     stat("VRF v2.5", "Chainlink") +
     stat(CONFIG.chainName, "Network");
   const parts = [];
+  if (CONFIG.RAFFLE_V3) parts.push(`Raffle v3: ${plainLink(CONFIG.RAFFLE_V3)}`);
   if (CONFIG.RAFFLE) parts.push(`Raffle v2: ${plainLink(CONFIG.RAFFLE)}`);
   if (CONFIG.RAFFLE_V1) parts.push(`Raffle v1 (giveaway #0): ${plainLink(CONFIG.RAFFLE_V1)}`);
   parts.push(`Zombies On Base: ${plainLink(CONFIG.ZOMBIES)}`);
@@ -399,7 +420,7 @@ function renderHeroStats() {
 async function refresh() {
   try {
     await loadGiveaways();
-    if (CONFIG.RAFFLE) raffleOwner = await pub.readContract({ address: CONFIG.RAFFLE, abi: v2Abi, functionName: "owner" });
+    if (START.address) raffleOwner = await pub.readContract({ address: START.address, abi: START.abi, functionName: "owner" });
     renderHeroStats();
     await Promise.all([renderCurrent(), renderLog()]);
     applyNames();
@@ -453,18 +474,18 @@ async function send(out, request) {
 // ---------------------------------------------------------------- actions (v2)
 
 /** VRF fee quoted at 2x today's gas price (the real fee depends on the draw transaction's gas price). */
-async function quoteFee() {
+async function quoteFee(address, abi) {
   const gasPrice = (await pub.getGasPrice()) * 2n;
-  const raw = await pub.call({ to: CONFIG.RAFFLE, data: encodeFunctionData({ abi: v2Abi, functionName: "drawPrice" }), gasPrice });
-  return decodeFunctionResult({ abi: v2Abi, functionName: "drawPrice", data: raw.data });
+  const raw = await pub.call({ to: address, data: encodeFunctionData({ abi, functionName: "drawPrice" }), gasPrice });
+  return decodeFunctionResult({ abi, functionName: "drawPrice", data: raw.data });
 }
 
 async function drawWinner(g, out) {
   try {
     // Normally the prepaid deposit covers the fee; if gas spiked, top up the shortfall (excess refunded).
-    const quote = await quoteFee();
+    const quote = await quoteFee(g.raffle, abiOf(g));
     const value = quote > g.feeDeposit ? (quote - g.feeDeposit) * 2n : 0n;
-    const r = await send(out, { address: CONFIG.RAFFLE, abi: v2Abi, functionName: "draw", args: [BigInt(g.id)], value });
+    const r = await send(out, { address: g.raffle, abi: abiOf(g), functionName: "draw", args: [BigInt(g.id)], value });
     if (r) say(out, `Draw requested ${txLink(r.hash)}. Chainlink usually answers within seconds…`, "ok");
     await refresh();
   } catch (e) {
@@ -474,7 +495,7 @@ async function drawWinner(g, out) {
 
 async function finishPayout(g, out) {
   try {
-    const r = await send(out, { address: CONFIG.RAFFLE, abi: v2Abi, functionName: "continuePayout", args: [BigInt(g.id)] });
+    const r = await send(out, { address: g.raffle, abi: abiOf(g), functionName: "continuePayout", args: [BigInt(g.id)] });
     if (r) say(out, `Payout sent ${txLink(r.hash)}`, "ok");
     await refresh();
   } catch (e) {
@@ -489,7 +510,7 @@ function pollUntilChanged(g) {
   let n = 0;
   const t = setInterval(async () => {
     n++;
-    const cur = await pub.readContract({ address: g.raffle, abi: v2Abi, functionName: "getGiveaway", args: [BigInt(g.id)] }).catch(() => null);
+    const cur = await pub.readContract({ address: g.raffle, abi: abiOf(g), functionName: "getGiveaway", args: [BigInt(g.id)] }).catch(() => null);
     if ((cur && V2_STATUS[cur.status] !== "drawing") || n > 120) {
       clearInterval(t);
       polling.delete(g.no);
@@ -523,12 +544,23 @@ $("checkForm").onsubmit = async (ev) => {
       return applyNames(out);
     }
     const bal = await pub.readContract({ address: CONFIG.ZOMBIES, abi: zombiesAbi, functionName: "balanceOf", args: [addr] });
-    const open = giveaways.filter((g) => g.v === 2 && g.status === "open").length;
-    const where = open > 1 ? ` in each of the ${open} open giveaways, as long as they're still in this wallet when each draw runs`
-      : open ? " in the current giveaway, as long as they're still in this wallet when the draw runs" : " in the next giveaway";
-    say(out, bal > 0n
-      ? `${who} holds ${bal} Zombie${bal > 1n ? "s" : ""} right now = ${bal} ticket${bal > 1n ? "s" : ""}${where}.`
-      : `No Zombies in ${who} right now, so no tickets.`, bal > 0n ? "ok" : "err");
+    const openList = giveaways.filter((g) => g.v >= 2 && g.status === "open");
+    const ok = openList.filter((g) => bal >= BigInt(g.minHolding));
+    const below = openList.filter((g) => bal < BigInt(g.minHolding));
+    const holds = `${who} holds ${bal} Zombie${bal === 1n ? "" : "s"} right now`;
+    const nums = (list) => list.map((g) => `#${g.no}`).join(", ");
+    if (bal === 0n) {
+      say(out, `No Zombies in ${who} right now, so no tickets.`, "err");
+    } else if (openList.length === 0) {
+      say(out, `${holds} = ${bal} ticket${bal > 1n ? "s" : ""} in the next giveaway, if it's open to wallets this size.`, "ok");
+    } else {
+      const parts = [];
+      if (ok.length) {
+        parts.push(`${bal} ticket${bal > 1n ? "s" : ""} in ${ok.length > 1 ? `each of giveaways ${nums(ok)}` : `giveaway ${nums(ok)}`}, as long as they're still in this wallet at the draw`);
+      }
+      for (const g of below) parts.push(`giveaway #${g.no} needs ${g.minHolding}+ Zombies at the draw, so this wallet needs ${BigInt(g.minHolding) - bal} more to qualify`);
+      say(out, `${holds}: ${parts.join("; ")}.`, ok.length ? "ok" : "err");
+    }
     applyNames(out);
   } catch (e) {
     say(out, errText(e), "err");
@@ -545,19 +577,24 @@ $("aStart").onclick = async () => {
     if (!closes || closes <= Date.now() / 1000) throw new Error("Pick a close time in the future.");
     const deposit = parseEther($("aFee").value.trim() || "0");
     if (deposit <= 0n) throw new Error("Add a small ETH deposit for the Chainlink fee.");
-    const quote = await quoteFee().catch(() => 0n);
+    const minHolding = Number($("aMin").value.trim() || "1");
+    if (!Number.isInteger(minHolding) || minHolding < 1) throw new Error("Minimum Zombies to win must be 1 or more.");
+    if (START.v === 2 && minHolding > 1) throw new Error("A minimum above 1 needs GraveyardRaffleV3, which isn't set up on this page yet.");
+    const quote = await quoteFee(START.address, START.abi).catch(() => 0n);
     if (quote && deposit < quote) throw new Error(`Deposit at least ${formatEther(quote)} ETH (today's fee at 2x gas). Unused ETH is refunded at the draw.`);
-    if (!confirm(`Lock Zombie #${prize} in the raffle until ${new Date(closes * 1000).toLocaleString()} with a ${formatEther(deposit)} ETH fee deposit?`)) return;
+    const open = minHolding > 1 ? `wallets holding ${minHolding}+ Zombies` : "every holder";
+    if (!confirm(`Lock Zombie #${prize} in the raffle until ${new Date(closes * 1000).toLocaleString()} with a ${formatEther(deposit)} ETH fee deposit? Open to ${open}.`)) return;
 
     if (!wallet) return void (await send(out, {}));
-    const approved = await pub.readContract({ address: CONFIG.ZOMBIES, abi: zombiesAbi, functionName: "isApprovedForAll", args: [account, CONFIG.RAFFLE] });
+    const approved = await pub.readContract({ address: CONFIG.ZOMBIES, abi: zombiesAbi, functionName: "isApprovedForAll", args: [account, START.address] });
     if (!approved) {
       say(out, "One-time step: allow the raffle contract to move the Zombie you choose as a prize…", "warn");
-      const a = await send(out, { address: CONFIG.ZOMBIES, abi: zombiesAbi, functionName: "setApprovalForAll", args: [CONFIG.RAFFLE, true] });
+      const a = await send(out, { address: CONFIG.ZOMBIES, abi: zombiesAbi, functionName: "setApprovalForAll", args: [START.address, true] });
       if (!a) return;
     }
     const r = await send(out, {
-      address: CONFIG.RAFFLE, abi: v2Abi, functionName: "startGiveaway", args: [prize, BigInt(closes)], value: deposit,
+      address: START.address, abi: START.abi, functionName: "startGiveaway",
+      args: START.v === 3 ? [prize, BigInt(closes), minHolding] : [prize, BigInt(closes)], value: deposit,
     });
     if (r) say(out, `Giveaway started ${txLink(r.hash)}`, "ok");
     await refresh();
@@ -569,7 +606,7 @@ $("aStart").onclick = async () => {
 function renderCancelChoices() {
   const sel = $("aCancelNo");
   const keep = sel.value;
-  const open = giveaways.filter((g) => g.v === 2 && g.status === "open");
+  const open = giveaways.filter((g) => g.v >= 2 && g.status === "open");
   sel.innerHTML = open.length
     ? open.map((g) => `<option value="${g.no}">#${g.no} · Zombie #${g.prizeTokenId} · closes ${esc(fmtDate(g.closesAt))}</option>`).join("")
     : `<option value="">No open giveaway</option>`;
@@ -579,11 +616,11 @@ function renderCancelChoices() {
 
 $("aCancel").onclick = async () => {
   const out = $("aCancelOut");
-  const g = giveaways.find((x) => x.v === 2 && x.status === "open" && String(x.no) === $("aCancelNo").value);
+  const g = giveaways.find((x) => x.v >= 2 && x.status === "open" && String(x.no) === $("aCancelNo").value);
   if (!g) return say(out, "There's no open giveaway to cancel.", "err");
   if (!confirm(`Cancel giveaway #${g.no} and return Zombie #${g.prizeTokenId} and the fee deposit to your wallet?`)) return;
   try {
-    const r = await send(out, { address: CONFIG.RAFFLE, abi: v2Abi, functionName: "cancel", args: [BigInt(g.id)] });
+    const r = await send(out, { address: g.raffle, abi: abiOf(g), functionName: "cancel", args: [BigInt(g.id)] });
     if (r) say(out, `Cancelled ${txLink(r.hash)}`, "ok");
     await refresh();
   } catch (e) {

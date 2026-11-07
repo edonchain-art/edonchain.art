@@ -115,3 +115,6 @@ label input, label select{ margin-top:6px; text-transform:none; letter-spacing:0
 @media (max-width:900px){
   .row{ flex-direction:column; }
 }
+
+.rule{ display:inline-block; margin:10px 0 2px; padding:6px 10px; border:1px solid var(--warn); color:var(--text); font-size:14px; }
+.rule b{ color:var(--warn); }
