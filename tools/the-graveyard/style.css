@@ -99,6 +99,7 @@ label input, label select{ margin-top:6px; text-transform:none; letter-spacing:0
 .grave .line b{ color:var(--text); font-weight:600; }
 
 /* rules */
+.explainer{ display:block; width:100%; max-width:760px; height:auto; aspect-ratio:16/9; margin:0 0 28px; background:var(--void); border:1px solid var(--border); box-shadow:6px 6px 0 var(--px-shadow); }
 .steps{ padding-left:22px; max-width:760px; margin:0 0 18px; }
 .steps li{ margin:0 0 14px; color:var(--muted); font-size:14px; line-height:1.9; }
 .steps li::marker{ font-family:var(--font-ui); color:var(--accent); font-weight:700; }
