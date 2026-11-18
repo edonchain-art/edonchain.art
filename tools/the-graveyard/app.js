@@ -14,7 +14,7 @@ import {
 } from "https://esm.sh/viem@2.21.54";
 import { mainnet } from "https://esm.sh/viem@2.21.54/chains";
 import { StandardMerkleTree } from "https://esm.sh/@openzeppelin/merkle-tree@1.0.8";
-import { CONFIG } from "./config.js";
+import { CONFIG } from "./config.js?v=2";
 import { createWallet, walletErrorText } from "../../assets/wallet.js";
 
 // v1 (giveaway #0, snapshot + Merkle proof) and v2 (onchain draw, prepaid fee) raffles.

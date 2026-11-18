@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Zombie Portal · Zombies On Base</title>
+<meta name="description" content="Send your Zombie through the portal: same art, same traits, fully onchain on Base. Add a glitch if you dare.">
+<meta property="og:title" content="The Zombie Portal · Ed OnChain">
+<meta property="og:url" content="https://edonchain.art/tools/zombie-portal/">
+<meta property="og:description" content="Same art, same traits, fully onchain on Base. Add a glitch if you dare.">
+<meta property="og:image" content="https://edonchain.art/tools/zombie-portal/og.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://edonchain.art/tools/zombie-portal/og.png">
+<link rel="icon" type="image/x-icon" href="../../favicon.ico?v=3">
+<link rel="icon" type="image/png" sizes="32x32" href="../../favicon-32.png?v=3">
+<link rel="apple-touch-icon" sizes="180x180" href="../../apple-touch-icon.png?v=3">
+<link rel="stylesheet" href="../../assets/ed.css">
+<link rel="stylesheet" href="style.css?v=11">
+</head>
+<body>
+<div id="simBar" class="sim-bar" hidden></div>
+
+<nav class="sitenav">
+  <a class="logo pixel" href="./">THE ZOMBIE<br><span>PORTAL</span></a>
+  <div class="navlist">
+    <a href="#yours"><span class="navnum">01</span>Your Zombies</a>
+    <a href="#lab"><span class="navnum">02</span>Portal Lab</a>
+    <a href="#how"><span class="navnum">03</span>How it works</a>
+    <a href="#admin" id="navAdmin" hidden><span class="navnum">04</span>Admin</a>
+  </div>
+  <div class="sitenav-footer">
+    <button id="connect" class="connect-btn">Connect Wallet</button>
+    <a href="../">&larr; All tools</a>
+    <a class="hide-mobile" href="../../">edonchain.art</a>
+    <div class="social-row">
+      <a href="https://x.com/EdOnChain" target="_blank" rel="noopener" aria-label="X"><svg viewBox="0 0 24 24"><path d="M18.9 2H22l-7.6 8.7L23.3 22h-7.1l-5.5-7.2L4.4 22H1.3l8.1-9.3L1 2h7.3l5 6.6L18.9 2zm-1.2 18h1.9L7.4 3.9H5.4L17.7 20z"/></svg></a>
+    </div>
+    <button class="theme-toggle" id="themeToggle"><svg id="themeIcon" viewBox="0 0 24 24"></svg><span id="themeLabel">Light Mode</span></button>
+  </div>
+</nav>
+
+<main class="content">
+  <div class="hero">
+    <div class="eyebrow">Zombies On Base · Tool 02 · Fully onchain</div>
+    <h1 class="pixel">THE ZOMBIE<br><span>PORTAL</span></h1>
+    <p class="lead">Send your Zombie through the portal: the same art and the same traits, stored fully onchain on Base, forever. Go through clean for free, or come out glitched.</p>
+    <div class="stats" id="heroStats"></div>
+  </div>
+
+  <section id="yours" class="section">
+    <h2 class="pixel">Your Zombies</h2>
+    <p class="sub" id="yoursSub">Connect your wallet to see the Zombies you hold.</p>
+    <div class="card reopen" id="reopenCard" hidden>
+      <div><b class="pixel">The portal is closed.</b>
+        <p class="muted small" id="reopenText">Any holder can reopen it for everyone for 24 hours.</p></div>
+      <button class="btn" id="btnReopen">Reopen for 24 hours</button>
+      <div class="note" id="reopenOut"></div>
+    </div>
+    <div class="card batch" id="batchBar" hidden>
+      <div><b class="pixel">Send several at once</b>
+        <p class="muted small" id="batchText">Pick Zombies below (or all of them) and send them through <b>clean, for free</b>: same art, same name, new token ID.
+          Your wallet asks for one approval, then one transaction for every 10 Zombies (fewer for big animated ones).</p></div>
+      <div class="btn-row">
+        <button class="btn ghost" id="batchMode">Select several</button>
+        <button class="btn ghost" id="batchAll" hidden>Select all</button>
+        <button class="btn" id="batchGo" hidden disabled>Send through clean</button>
+        <button class="btn ghost" id="batchRevoke" hidden>Remove the "all Zombies" approval</button>
+      </div>
+      <label class="ack" id="batchAckRow" hidden><input type="checkbox" id="batchAck">
+        <span>I understand that every selected Zombie's old token is burned and the same Zombie comes back as a new
+        token (#1,000,000 + its number), fully onchain. This can't be undone.</span></label>
+      <div class="note" id="batchOut"></div>
+    </div>
+    <div class="promo" id="promo" hidden>
+      <div class="promo-stage">
+        <div class="promo-side">
+          <div class="promo-label">Today</div>
+          <div class="promo-frame off"><img id="promoOff" alt=""></div>
+          <div class="promo-cap">Art behind an <b>offchain link</b></div>
+          <code class="promo-url" id="promoUrl"></code>
+        </div>
+        <div class="promo-portal" aria-hidden="true">
+          <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+          <img class="traveler" id="promoTraveler" alt="">
+        </div>
+        <div class="promo-side">
+          <div class="promo-label on">After the portal</div>
+          <div class="promo-frame on"><img id="promoOn" alt=""></div>
+          <div class="promo-cap">Every pixel <b>inside a contract on Base</b></div>
+          <code class="promo-url on" id="promoChain"></code>
+        </div>
+      </div>
+      <p class="promo-line">Same Zombie. Same name. Same traits. <b>No link to break.</b> As long as Base exists, so does your Zombie.</p>
+      <button class="btn big" id="promoConnect">Connect wallet to see your Zombies</button>
+    </div>
+    <div id="yoursBody" class="zgrid"></div>
+  </section>
+
+  <section id="lab" class="section" hidden>
+    <h2 class="pixel">Portal Lab</h2>
+    <p class="sub" id="labSub"></p>
+    <div class="lab">
+      <div class="lab-view">
+        <div class="frame-big"><img id="preview" alt="Onchain preview"></div>
+        <div class="lab-caption"><span id="previewTag" class="chip live">Exact onchain render</span><span id="previewInfo" class="muted small mono"></span></div>
+        <div class="compare">
+          <div><img id="origImg" alt="Original"><span class="muted small" id="origCap"></span></div>
+          <div class="arrow pixel">&rarr;</div>
+          <div><span class="newid pixel" id="newIdLabel"></span><span class="muted small" id="newCap"></span></div>
+        </div>
+        <div class="teaser" id="teaser" hidden>
+          <img id="teaserImg" alt="Animated preview">
+          <div>
+            <span class="pixel teaser-title">It can move too</span>
+            <span class="muted small" id="teaserText"></span>
+            <button class="btn small-btn" id="teaserBtn">Make it animated</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="lab-controls">
+        <h3>1 · Mix your glitch</h3>
+        <div class="mixer card">
+          <div class="mix-top">
+            <select id="preset" aria-label="Start from a preset">
+              <option value="">Start from a preset…</option>
+              <option value="vhs">VHS tear</option>
+              <option value="corrupt">Corrupted file</option>
+              <option value="sorted">Pixel sorted</option>
+              <option value="ghost">Ghost signal</option>
+              <option value="chaos">Full meltdown</option>
+            </select>
+            <button class="btn ghost small-btn" id="clearMix">No glitch (free)</button>
+          </div>
+          <p class="trait-note">A glitch adds one trait to your Zombie: <b>Glitch: Yes</b>. Your traits stay.
+            The full recipe (each effect's strength, the speed and the placement) is saved in your Zombie's <b>description</b>.</p>
+          <div id="sliders"></div>
+          <label class="animate-opt" id="animateRow" hidden>
+            <input type="checkbox" id="animate">
+            <span><b>Make it animated</b> <span class="price" id="animatePriceLabel"></span><br>
+            <span class="muted small" id="animateHint">Scan Tear, RGB Split, Ghost Signal, Line Dropout and Corrupt Band play as animation. Your <i>Animated</i> trait changes from <b>no</b> to <b>yes</b>.</span></span>
+          </label>
+          <div id="speedRow" class="slider speed" hidden>
+            <div class="sname">Glitch speed<span id="speedVal" class="on">4</span></div>
+            <small>How often the animated glitches fire: 1 = rare twitch, 4 = default, 10 = frantic. Added as the <i>Glitch Speed</i> trait.</small>
+            <input type="range" min="1" max="10" step="1" value="4" id="speed" aria-label="Glitch speed">
+          </div>
+          <div id="seedRow" class="row-ctl">
+            <span class="lbl">Placement</span>
+            <span class="mono" id="seedLabel"></span>
+            <button class="btn ghost small-btn" id="reroll" title="Move the glitches around, keep the strengths">Reroll</button>
+            <button class="btn ghost small-btn" id="prevSeed" title="Back to the previous placement">Undo</button>
+          </div>
+          <p class="muted small" id="mixHint"></p>
+        </div>
+
+        <h3>2 · What you get</h3>
+        <div class="card result">
+          <div class="result-name" id="resName"></div>
+          <div class="traits-head">Traits on your new Zombie <span id="newTraitCount"></span></div>
+          <ul class="traits" id="resTraits"></ul>
+          <div class="cost"><span>Cost</span><b id="resCost"></b></div>
+        </div>
+
+        <h3>3 · Go through</h3>
+        <div class="final" id="finalCard">
+          <div class="final-tag">What you're minting</div>
+          <div class="final-body">
+            <img id="finalImg" alt="Your new Zombie">
+            <div class="final-info">
+              <div class="final-coll">Zombies On Base</div>
+              <div class="final-name pixel" id="finalName"></div>
+              <div class="final-id" id="finalId"></div>
+              <div class="final-chips" id="finalChips"></div>
+              <div class="final-price"><span>Price</span><b id="finalPrice"></b></div>
+            </div>
+          </div>
+          <div class="final-traits-head">Traits <span id="finalTraitCount"></span></div>
+          <div class="final-traits" id="finalTraits"></div>
+          <div class="final-recipe" id="finalRecipe" hidden></div>
+        </div>
+        <div class="card go">
+          <label class="ack"><input type="checkbox" id="ack"> <span id="ackText"></span></label>
+          <div class="go-steps">
+            <button class="btn" id="btnApprove">Approve</button>
+            <button class="btn big" id="btnGo">Enter the Portal</button>
+          </div>
+          <button class="linkish" id="btnVerify">Double-check this preview against the contract</button>
+          <div class="note" id="goOut"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" class="section">
+    <h2 class="pixel">How it works</h2>
+    <ol class="steps">
+      <li><b>Same Zombie, now fully onchain.</b> Zombies #1–#1117 (the 999 Zombies plus the villains, heroes, Zombie Punks and other artifacts) have their art on a file host today. The portal stores the exact same pixels and traits inside a contract on Base, so they live as long as Base does.</li>
+      <li><b>Traits, cleaned up.</b> The portal fixes the collection's old spelling: every trait starts with a capital letter, duplicates spelled two ways become one (<i>gold chain</i> and <i>Gold Chain</i> → <b>Gold Chain</b>), typos are fixed (<i>Earing</i> → <b>Earring</b>, <i>mustach</i> → <b>Mustache</b>), every animated Zombie gets <b>Animated: Yes</b>, and Zombie Punks get <b>Background: Not For Sale</b>. Nothing about your Zombie's look changes.</li>
+      <li><b>Same name, new token ID.</b> Zombie 5 is still called <b>Zombie 5</b> after the portal. Only its token ID changes, from #5 to #1,000,005: the old token is burned and the new one is minted to you in the same transaction. Your traits stay; a glitch only adds traits (and Animate changes <i>Animated</i> to Yes).</li>
+      <li><b>Clean is free. Glitched is 0.0006 ETH. Animated is 0.0025 ETH, the original Zombie mint price.</b> Mix up to eight glitch effects with the sliders, each from 0 to 100, then reroll the placement until it feels right. Static Zombies get the glitch baked into their pixels, or pay 0.0025 ETH to make it animated, like minting a new Zombie (their <i>Animated</i> trait becomes <b>yes</b>). Animated Zombies get animated glitches on top. Your mix is locked forever.</li>
+      <li><b>One new trait: Glitch: Yes.</b> A glitched Zombie gets the trait <i>Glitch: Yes</i> (and <i>Animated: Yes</i> if you made it animated). All your original traits stay. The exact recipe, every effect's strength, the speed and the placement, is written in the token's description, so you can always see how it was made.</li>
+      <li><b>What you see is what you get.</b> The preview above is drawn by the same code the contract runs, and you can double-check it against the contract before you go.</li>
+      <li><b>Nobody can fake the art.</b> Every Zombie's original art and traits are fingerprinted in the contract (a Merkle root). The portal rejects anything that doesn't match.</li>
+      <li><b>Open until December 31, 2026, then holders keep it alive.</b> After the year ends the portal closes by itself. Any holder of a Zombie #1–#1117 can reopen it for everyone for 24 hours by paying 0.0006 ETH, and it closes again by itself. The artist can pause it at any time.</li>
+      <li><b>Every Zombie from #1 to #1117.</b> Zombies #1118 and up are already fully onchain. The artifacts keep every frame of their animation as pixel art (without their film grain), and every Zombie keeps its name and description.</li>
+    </ol>
+    <p class="muted small">Burning can't be undone. Any listing of the original token ends, and marketplaces show the new token as a new item.</p>
+    <p class="muted small mono" id="contracts"></p>
+  </section>
+
+  <section id="admin" class="section" hidden>
+    <h2 class="pixel">Admin</h2>
+    <p class="sub">Only visible to the portal owner wallet.</p>
+    <div class="admin-grid">
+      <div class="card">
+        <h3>Window</h3>
+        <div id="aWindow" class="muted small"></div>
+        <label>Open until (your local time) <input id="aDeadline" type="datetime-local"></label>
+        <div class="btn-row">
+          <button class="btn" id="aSetDeadline">Set deadline</button>
+          <button class="btn ghost" id="aReopen">Reopen until Dec 31, 2026</button>
+          <button class="btn ghost" id="aCloseNow">Close now</button>
+        </div>
+        <button class="btn danger" id="aPause">Pause</button>
+        <p class="muted small">While paused the portal is closed and holders can't reopen it. Unpause any time.</p>
+        <div class="note" id="aWindowOut"></div>
+      </div>
+      <div class="card">
+        <h3>Price &amp; funds</h3>
+        <div id="aFunds" class="muted small"></div>
+        <label>Glitch price (ETH) <input id="aPrice"></label>
+        <div class="btn-row">
+          <button class="btn" id="aSetPrice">Set price</button>
+        </div>
+        <label>Animated glitch price (ETH) <input id="aAnimatePrice"></label>
+        <div class="btn-row">
+          <button class="btn" id="aSetAnimatePrice">Set animated price</button>
+        </div>
+        <label>Reopen fee, 24 hours (ETH) <input id="aReopenFee"></label>
+        <div class="btn-row">
+          <button class="btn" id="aSetReopenFee">Set reopen fee</button>
+          <button class="btn ghost" id="aWithdraw">Withdraw to owner</button>
+        </div>
+        <div class="note" id="aFundsOut"></div>
+      </div>
+      <div class="card">
+        <h3>Mint permission</h3>
+        <div id="aManager" class="muted small"></div>
+        <p class="muted small">The portal needs the Zombies manager role to mint. When the portal is closed for good, remove it so no contract other than your wallet can mint Zombies.</p>
+        <div class="btn-row">
+          <button class="btn danger" id="aRevoke">Remove the portal's mint permission</button>
+          <button class="btn ghost" id="aGrant">Give it back</button>
+        </div>
+        <div class="note" id="aManagerOut"></div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <span>Zombies On Base · stored fully onchain on Base</span>
+    <span>Tool 02 by <a href="../../">Ed OnChain</a> · <a href="../">more tools</a></span>
+  </footer>
+</main>
+
+<script src="../../assets/ed.js"></script>
+<script type="module" src="app.js?v=11"></script>
+</body>
+</html>

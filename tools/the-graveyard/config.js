@@ -1,5 +1,5 @@
 // Site configuration. After deploying GraveyardRaffle on Base, put its address in RAFFLE.
-// For local testing, override with query params: ?rpc=http://127.0.0.1:8546&raffle=0x...
+// For local testing (localhost only), override with query params: ?rpc=http://127.0.0.1:8546&raffle=0x...
 export const CONFIG = {
   chainId: 8453,
   chainName: "Base",
@@ -13,7 +13,10 @@ export const CONFIG = {
   opensea: "https://opensea.io/item/base/0xa2d33352e3e2b4fe1b8af7387c375828197bcd9b/",
 };
 
-const q = new URLSearchParams(location.search);
+// Overrides are for local testing ONLY. On the live site a link like ?raffle=0x... could otherwise point visitors at a
+// scammer's contract dressed up as The Graveyard, so they are ignored unless the page runs on this computer.
+const LOCAL = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+const q = new URLSearchParams(LOCAL ? location.search : "");
 if (q.get("network") === "base-sepolia") {
   Object.assign(CONFIG, {
     chainId: 84532,
