@@ -13,6 +13,7 @@ import {
 } from "https://esm.sh/viem@2.21.54";
 import { CONFIG } from "./config.js?v=11";
 import { createWallet, walletErrorText } from "../../assets/wallet.js";
+import { displayName } from "../../assets/names.js?v=1";
 import { renderSVG, hexToBytes, EFFECTS, packMix, validMix } from "./glitch.js?v=11";
 
 // ------------------------------------------------------------------ chain
@@ -116,6 +117,11 @@ async function setAccount(addr) {
   const btn = $("connect");
   btn.textContent = S.account ? short(S.account) : CONFIG.sim ? "Simulation" : "Connect Wallet";
   btn.classList.toggle("connected", !!S.account);
+  btn.title = S.account || "";
+  if (S.account) {
+    const mine = S.account; // ENS, else Basename, instead of the address (if the wallet has one)
+    displayName(mine).then((n) => { if (n && S.account === mine) btn.textContent = n; });
+  }
   S.sel = null;
   $("lab").hidden = true;
   await Promise.all([loadTokens(), refreshAdmin()]);
