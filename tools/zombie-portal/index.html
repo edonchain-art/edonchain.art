@@ -264,6 +264,24 @@
 </main>
 
 <script src="../../assets/ed.js"></script>
-<script type="module" src="app.js?v=13"></script>
+<script>
+// Startup check: if the portal's code hasn't started after 8 s (some in-app wallet browsers), show which file failed.
+window.__bootErrors = [];
+addEventListener("error", (e) => { window.__bootErrors.push(((e.message || "load error") + " " + (e.filename || (e.target && e.target.src) || "") + (e.lineno ? ":" + e.lineno : "")).trim()); }, true);
+addEventListener("unhandledrejection", (e) => { window.__bootErrors.push("promise: " + (e.reason && (e.reason.message || e.reason))); });
+setTimeout(async function () {
+  if (window.__portalBooted) return;
+  var mods = ["https://esm.sh/viem@2.21.54", "./config.js?v=11", "../../assets/wallet.js", "../../assets/names.js?v=1", "./glitch.js?v=11", "./app.js?v=14"];
+  var out = [];
+  for (var i = 0; i < mods.length; i++) {
+    try { await import(mods[i]); out.push("ok   " + mods[i]); } catch (err) { out.push("FAIL " + mods[i] + " → " + (err && err.message)); }
+  }
+  var box = document.createElement("pre");
+  box.style.cssText = "position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;max-height:45vh;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#2a0d12;color:#ffd7dc;border:2px solid #ff3b4e;padding:10px;font:11px/1.4 monospace;";
+  box.textContent = "The portal couldn't start in this browser. Please screenshot this box.\n\n" + navigator.userAgent + "\n\n" + out.join("\n") + (window.__bootErrors.length ? "\n\nErrors:\n" + window.__bootErrors.join("\n") : "");
+  document.body.appendChild(box);
+}, 8000);
+</script>
+<script type="module" src="app.js?v=14"></script>
 </body>
 </html>

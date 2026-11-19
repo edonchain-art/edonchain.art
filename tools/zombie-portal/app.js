@@ -1043,6 +1043,7 @@ $("batchRevoke").onclick = batchRevoke;
 wireAdmin();
 setupSim();
 $("connect").textContent = CONFIG.sim ? "Simulation" : "Connect Wallet";
+window.__portalBooted = true; // see the startup check in index.html
 
 (async () => {
   try {
