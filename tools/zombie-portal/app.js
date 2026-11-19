@@ -113,7 +113,10 @@ const wallet = createWallet({
 
 async function setAccount(addr) {
   S.account = addr ? getAddress(addr) : null;
-  S.bundle = await canBundle();
+  // Ask in the background whether the wallet can approve + enter in one confirmation; never hold up connecting.
+  S.bundle = false;
+  const asked = S.account;
+  canBundle().then((ok) => { if (S.account === asked) { S.bundle = ok; updateButtons(); } });
   const btn = $("connect");
   btn.textContent = S.account ? short(S.account) : CONFIG.sim ? "Simulation" : "Connect Wallet";
   btn.classList.toggle("connected", !!S.account);
@@ -149,7 +152,11 @@ async function canBundle() {
   if (CONFIG.sim || !S.account || !wallet.provider) return false;
   try {
     const hex = "0x" + CONFIG.chainId.toString(16);
-    const caps = await wallet.provider.request({ method: "wallet_getCapabilities", params: [S.account, [hex]] });
+    // Some wallets (MetaMask's phone app) never answer this; give up after 2.5 s and use the normal two steps.
+    const caps = await Promise.race([
+      wallet.provider.request({ method: "wallet_getCapabilities", params: [S.account, [hex]] }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("no answer")), 2500)),
+    ]);
     const c = caps?.[hex] || caps?.[CONFIG.chainId] || caps?.[String(CONFIG.chainId)];
     return c?.atomic?.status === "supported" || c?.atomicBatch?.supported === true;
   } catch {
