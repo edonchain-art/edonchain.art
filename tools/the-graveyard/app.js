@@ -11,9 +11,8 @@ import {
   getAddress,
   isAddress,
   namehash,
-} from "https://esm.sh/viem@2.21.54";
-import { mainnet } from "https://esm.sh/viem@2.21.54/chains";
-import { StandardMerkleTree } from "https://esm.sh/@openzeppelin/merkle-tree@1.0.8";
+  mainnet,
+} from "../../assets/vendor/viem-2.21.54.js"; // self-hosted: MetaMask's phone browser can't load esm.sh
 import { CONFIG } from "./config.js?v=2";
 import { createWallet, walletErrorText } from "../../assets/wallet.js";
 
