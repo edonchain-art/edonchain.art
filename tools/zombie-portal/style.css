@@ -264,3 +264,4 @@ label input{ margin-top:6px; text-transform:none; letter-spacing:0; }
 
 /* long ENS / Basenames on the wallet button */
 #connect.connected{ max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media (max-width:900px){ #connect.connected{ max-width:132px; } }

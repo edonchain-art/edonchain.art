@@ -310,19 +310,27 @@ h1.pixel span{ color:var(--accent); }
 .site-footer a{ color:var(--muted); }
 .site-footer a:hover{ color:var(--accent); }
 
-/* ---------- Mobile: sidebar becomes a top bar ---------- */
+/* ---------- Mobile: sidebar becomes a thin top bar (same feel as onchainusers.art) ----------
+   One row: logo, the menu (one line, swipes sideways, no scrollbar), then the wallet / back / theme buttons. */
 @media (max-width:900px){
-  .sitenav{ width:100%; height:auto; position:static; flex-direction:row; flex-wrap:wrap; align-items:center; padding:14px 16px; gap:8px 16px; }
-  .sitenav .logo{ margin:0; }
-  .navlist{ flex-direction:row; flex-wrap:wrap; }
-  .navlist a{ padding:8px 10px; }
+  .sitenav{ width:100%; height:auto; position:static; flex-direction:row; flex-wrap:nowrap; align-items:center; padding:8px 14px; gap:0 12px; overflow:visible; }
+  .sitenav .logo{ margin:0; font-size:12px; line-height:1.35; flex:none; }
+  .navlist{ flex-direction:row; flex-wrap:nowrap; flex:1; min-width:0; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; gap:2px; }
+  .navlist::-webkit-scrollbar{ display:none; }
+  .navlist a{ padding:8px 10px; white-space:nowrap; flex:none; }
   .navlist .navsub{ display:none; }
-  .sitenav-footer{ flex-direction:row; align-items:center; margin:0 0 0 auto; padding:0; }
+  /* Tool pages also carry a wallet button: logo + buttons on a first thin row, the menu on a second one. */
+  .sitenav:has(.connect-btn){ flex-wrap:wrap; row-gap:4px; }
+  .sitenav:has(.connect-btn) .sitenav-footer{ order:2; margin-left:auto; }
+  .sitenav:has(.connect-btn) .navlist{ order:3; flex:0 0 100%; }
+  .sitenav-footer{ flex-direction:row; align-items:center; flex:none; margin:0; padding:0; gap:8px; }
   .sitenav-footer .social-row, .sitenav-footer .hide-mobile{ display:none; }
-  .theme-toggle{ width:auto; margin:0; }
+  .sitenav-footer .back span{ display:none; }
+  .sitenav-footer .back{ font-size:15px; padding:2px 2px; }
+  .theme-toggle{ width:auto; margin:0; padding:7px 8px; }
   .theme-toggle span{ display:none; }
-  .connect-btn{ width:auto; }
-  .sitenav{ overflow:visible; }
+  .connect-btn{ width:auto; padding:7px 10px; font-size:10.5px; white-space:nowrap; }
+  .connect-btn.connected{ max-width:132px; overflow:hidden; text-overflow:ellipsis; }
   .wallet-picker-menu{ left:auto; right:0; width:min(300px, calc(100vw - 32px)); }
   .content{ margin-left:0; }
   .hero, .section{ padding-left:16px; padding-right:16px; }
