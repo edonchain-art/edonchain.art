@@ -271,7 +271,7 @@ addEventListener("error", (e) => { window.__bootErrors.push(((e.message || "load
 addEventListener("unhandledrejection", (e) => { window.__bootErrors.push("promise: " + (e.reason && (e.reason.message || e.reason))); });
 setTimeout(async function () {
   if (window.__portalBooted) return;
-  var mods = ["https://esm.sh/viem@2.21.54", "./config.js?v=11", "../../assets/wallet.js", "../../assets/names.js?v=1", "./glitch.js?v=11", "./app.js?v=14"];
+  var mods = ["../../assets/vendor/viem-2.21.54.js", "./config.js?v=11", "../../assets/wallet.js", "../../assets/names.js?v=2", "./glitch.js?v=11", "./app.js?v=15"];
   var out = [];
   for (var i = 0; i < mods.length; i++) {
     try { await import(mods[i]); out.push("ok   " + mods[i]); } catch (err) { out.push("FAIL " + mods[i] + " → " + (err && err.message)); }
@@ -282,6 +282,6 @@ setTimeout(async function () {
   document.body.appendChild(box);
 }, 8000);
 </script>
-<script type="module" src="app.js?v=14"></script>
+<script type="module" src="app.js?v=15"></script>
 </body>
 </html>

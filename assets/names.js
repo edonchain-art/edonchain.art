@@ -1,8 +1,7 @@
 // Display names for wallet addresses, shared by the edonchain.art tools:
 // ENS primary name (Ethereum) first, else Basename (Base), else null (show the short address).
 // Both are only used when they resolve back to the same address, so nobody can fake a name.
-import { createPublicClient, http, parseAbi, namehash, getAddress } from "https://esm.sh/viem@2.21.54";
-import { mainnet, base } from "https://esm.sh/viem@2.21.54/chains";
+import { createPublicClient, http, parseAbi, namehash, getAddress, mainnet, base } from "./vendor/viem-2.21.54.js"; // self-hosted: MetaMask's phone browser can't load esm.sh
 
 const eth = createPublicClient({ chain: mainnet, transport: http("https://ethereum-rpc.publicnode.com") });
 const baseClient = createPublicClient({ chain: base, transport: http("https://mainnet.base.org") });

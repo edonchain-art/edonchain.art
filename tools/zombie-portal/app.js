@@ -10,10 +10,10 @@ import {
   decodeEventLog,
   getAddress,
   isAddress,
-} from "https://esm.sh/viem@2.21.54";
+} from "../../assets/vendor/viem-2.21.54.js";
 import { CONFIG } from "./config.js?v=11";
 import { createWallet, walletErrorText } from "../../assets/wallet.js";
-import { displayName } from "../../assets/names.js?v=1";
+import { displayName } from "../../assets/names.js?v=2";
 import { renderSVG, hexToBytes, EFFECTS, packMix, validMix } from "./glitch.js?v=11";
 
 // ------------------------------------------------------------------ chain
