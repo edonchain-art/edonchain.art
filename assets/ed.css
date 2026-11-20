@@ -365,3 +365,19 @@ h1.pixel span{ color:var(--accent); }
   box-shadow:0 0 0 var(--px-shadow-btn);
 }
 .btn-primary:disabled{ box-shadow:none; }
+
+/* ---------- News band (top of the archive) ---------- */
+.newsband{ display:flex; align-items:center; height:40px; border-bottom:1px solid var(--border); background:var(--panel); color:var(--text); overflow:hidden; text-decoration:none; position:relative; }
+.newsband:hover{ text-decoration:none; background:var(--panel2); }
+.nb-thumb{ flex:none; width:40px; height:40px; border-right:1px solid var(--border); }
+.nb-track{ flex:1; min-width:0; display:flex; overflow:hidden; -webkit-mask-image:linear-gradient(90deg,transparent,#000 40px,#000 calc(100% - 40px),transparent); mask-image:linear-gradient(90deg,transparent,#000 40px,#000 calc(100% - 40px),transparent); }
+.nb-run{ flex:none; display:flex; animation:nb-scroll 40s linear infinite; }
+.newsband:hover .nb-run{ animation-play-state:paused; }
+.nb-item{ font-family:var(--font-ui); font-size:12px; letter-spacing:2px; text-transform:uppercase; white-space:nowrap; padding:0 22px; display:flex; align-items:center; gap:12px; }
+.nb-item::after{ content:"✦"; color:var(--accent); margin-left:22px; letter-spacing:0; }
+.nb-live{ color:var(--good); font-weight:700; animation:nb-blink 1.6s steps(2,start) infinite; }
+.nb-go{ color:var(--accent-hover); font-weight:700; }
+@keyframes nb-scroll{ to{ transform:translateX(-100%); } }
+@keyframes nb-blink{ 50%{ opacity:.35; } }
+@media (prefers-reduced-motion:reduce){ .nb-run, .nb-live{ animation:none; } .nb-track{ overflow-x:auto; } }
+@media (max-width:900px){ .newsband{ height:34px; } .nb-thumb{ width:34px; height:34px; } .nb-item{ font-size:10.5px; padding:0 16px; } .nb-item::after{ margin-left:16px; } }
